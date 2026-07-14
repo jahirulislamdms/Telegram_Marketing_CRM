@@ -36,6 +36,15 @@ class PasswordSubmit(BaseModel):
     password: str
 
 
+class JoinRequest(Credentials):
+    link: str
+
+
+class SendRequest(Credentials):
+    target: str
+    text: str
+
+
 class TelegramUser(BaseModel):
     id: int
     username: str | None = None

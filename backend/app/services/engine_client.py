@@ -162,3 +162,21 @@ async def request_unfreeze(account: Account, proxy: Proxy | None) -> dict:
         f"/clients/{account.id}/health/unfreeze",
         json=credentials_payload(account, proxy),
     )
+
+
+# ---- Warmup actions (Phase 4) ----
+
+
+async def warmup_join(account: Account, proxy: Proxy | None, link: str) -> dict:
+    body = credentials_payload(account, proxy)
+    body["link"] = link
+    return await _request("POST", f"/clients/{account.id}/warmup/join", json=body)
+
+
+async def warmup_send(
+    account: Account, proxy: Proxy | None, target: str, text: str
+) -> dict:
+    body = credentials_payload(account, proxy)
+    body["target"] = target
+    body["text"] = text
+    return await _request("POST", f"/clients/{account.id}/warmup/send", json=body)

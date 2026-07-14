@@ -5,6 +5,7 @@ import Accounts from './pages/Accounts'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import Staff from './pages/Staff'
+import Warmup from './pages/Warmup'
 
 export default function App() {
   return (
@@ -24,6 +25,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin', 'manager']}>
               <Accounts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/warmup"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <Warmup />
             </ProtectedRoute>
           }
         />

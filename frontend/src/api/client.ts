@@ -237,3 +237,93 @@ export const proxiesApi = {
       body: JSON.stringify({ raw }),
     }),
 }
+
+// ---- Warmup (Phase 4) ----
+
+export interface WarmupStage {
+  days: number
+  max_actions: number
+}
+
+export interface WarmupRun {
+  id: number
+  name: string
+  status: string
+  stages: WarmupStage[]
+  groups: string[]
+  messages: string[]
+  min_delay_seconds: number
+  max_delay_seconds: number
+  created_at: string
+  started_at: string | null
+}
+
+export interface WarmupParticipant {
+  id: number
+  account_id: number
+  account_label: string
+  stage: number
+  stage_progress: string
+  actions_today: number
+  status: string
+  last_action_at: string | null
+  joined: string[]
+}
+
+export interface WarmupPartner {
+  id: number
+  identifier: string
+  kind: 'phone' | 'username'
+}
+
+export interface WarmupRunDetail extends WarmupRun {
+  participants: WarmupParticipant[]
+  partners: WarmupPartner[]
+}
+
+export interface TickResult {
+  advanced: number
+  completed: number
+  actions: Array<Record<string, unknown>>
+  errors: Array<Record<string, unknown>>
+}
+
+export interface CreateRunInput {
+  name: string
+  groups: string[]
+  messages: string[]
+  stages?: WarmupStage[]
+  min_delay_seconds?: number
+  max_delay_seconds?: number
+}
+
+export const warmupApi = {
+  listRuns: () => apiFetch<WarmupRun[]>('/warmup/runs'),
+  createRun: (data: CreateRunInput) =>
+    apiFetch<WarmupRun>('/warmup/runs', { method: 'POST', body: JSON.stringify(data) }),
+  getRun: (id: number) => apiFetch<WarmupRunDetail>(`/warmup/runs/${id}`),
+  deleteRun: (id: number) =>
+    apiFetch<void>(`/warmup/runs/${id}`, { method: 'DELETE' }),
+  addParticipants: (id: number, account_ids: number[]) =>
+    apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/participants`, {
+      method: 'POST',
+      body: JSON.stringify({ account_ids }),
+    }),
+  removeParticipant: (id: number, pid: number) =>
+    apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/participants/${pid}`, {
+      method: 'DELETE',
+    }),
+  addPartner: (id: number, identifier: string, kind: 'phone' | 'username') =>
+    apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/partners`, {
+      method: 'POST',
+      body: JSON.stringify({ identifier, kind }),
+    }),
+  start: (id: number) =>
+    apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/start`, { method: 'POST' }),
+  pause: (id: number) =>
+    apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/pause`, { method: 'POST' }),
+  stop: (id: number) =>
+    apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/stop`, { method: 'POST' }),
+  tick: (id: number) =>
+    apiFetch<TickResult>(`/warmup/runs/${id}/tick`, { method: 'POST' }),
+}

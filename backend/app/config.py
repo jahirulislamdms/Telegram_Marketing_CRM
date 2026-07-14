@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     # Auto-quarantine an account when a health check reports it is limited/flagged.
     auto_quarantine_on_warning: bool = True
 
+    # ---- Warmup (Phase 4; overridable from Settings later) ----
+    warmup_full_daily_cap: int = 30
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

@@ -24,6 +24,14 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
 )
 
+# Periodic tasks (run by Celery beat).
+celery_app.conf.beat_schedule = {
+    "warmup-tick": {
+        "task": "warmup.tick",
+        "schedule": 300.0,  # every 5 minutes
+    },
+}
+
 celery_app.autodiscover_tasks(["worker.tasks"])
 
 

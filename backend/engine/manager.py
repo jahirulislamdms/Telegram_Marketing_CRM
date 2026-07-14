@@ -13,6 +13,7 @@ from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import SQLiteSession, StringSession
 
+from engine import actions as action_ops
 from engine import health as health_ops
 from engine.proxy import to_telethon_proxy
 
@@ -288,6 +289,28 @@ class SessionManager:
         async with self._lock(account_id):
             client = await self._authorized_client(account_id, api_id, api_hash, proxy)
             return await health_ops.request_unfreeze(client)
+
+    # -------------------------------------------------------------- actions ---
+
+    async def join_chat(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None, link: str
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await action_ops.join_chat(client, link)
+
+    async def send_dm(
+        self,
+        account_id: int,
+        api_id: str,
+        api_hash: str,
+        proxy: dict | None,
+        target: str,
+        text: str,
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await action_ops.send_dm(client, target, text)
 
     # ------------------------------------------------------ session import ---
 

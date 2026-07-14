@@ -14,6 +14,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: '▤', end: true },
   { to: '/accounts', label: 'Accounts', icon: '⊚', end: false, roles: ['admin', 'manager'] },
+  { to: '/warmup', label: 'Warmup', icon: '♨', end: false, roles: ['admin', 'manager'] },
   { to: '/staff', label: 'Staff', icon: '☰', end: false, roles: ['admin'] },
 ]
 

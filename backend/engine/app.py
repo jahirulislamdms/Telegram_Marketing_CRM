@@ -17,9 +17,11 @@ from app.config import settings
 from engine.manager import EngineLoginError, SessionManager
 from engine.schemas import (
     Credentials,
+    JoinRequest,
     PasswordSubmit,
     PhoneSendCode,
     PhoneSignIn,
+    SendRequest,
     SessionImport,
 )
 
@@ -192,6 +194,29 @@ async def unfreeze(account_id: int, cred: Credentials) -> dict:
     try:
         return await _manager().request_unfreeze(
             account_id, cred.api_id, cred.api_hash, _proxy(cred)
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ------------------------------------------------------------- warmup ---------
+
+
+@app.post("/clients/{account_id}/warmup/join")
+async def warmup_join(account_id: int, body: JoinRequest) -> dict:
+    try:
+        return await _manager().join_chat(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.link
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/warmup/send")
+async def warmup_send(account_id: int, body: SendRequest) -> dict:
+    try:
+        return await _manager().send_dm(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.target, body.text
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

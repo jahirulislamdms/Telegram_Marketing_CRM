@@ -12,6 +12,7 @@ from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.api.proxies import router as proxies_router
 from app.api.users import router as users_router
+from app.api.warmup import router as warmup_router
 from app.config import settings
 
 logging.basicConfig(
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     app.include_router(audit_router, prefix="/api")
     app.include_router(accounts_router, prefix="/api")
     app.include_router(proxies_router, prefix="/api")
+    app.include_router(warmup_router, prefix="/api")
     return app
 
 
