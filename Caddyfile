@@ -1,0 +1,24 @@
+# ============================================================
+#  Caddy reverse proxy for Telegram Marketing CRM
+#  - Local dev:  CADDY_SITE_ADDRESS=:80   (no TLS)
+#  - Production: CADDY_SITE_ADDRESS=your-domain.com  (auto HTTPS)
+# ============================================================
+
+{
+	admin off
+}
+
+{$CADDY_SITE_ADDRESS::80} {
+	encode gzip
+
+	# Backend: REST API, health probe, and WebSocket inbox stream.
+	@backend path /api/* /health /ws/*
+	handle @backend {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else -> the React frontend (Vite).
+	handle {
+		reverse_proxy frontend:5173
+	}
+}

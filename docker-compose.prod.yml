@@ -1,0 +1,47 @@
+# ============================================================
+#  Telegram Marketing CRM — production overrides
+#  Usage:
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+#  Differences from dev:
+#    - no source bind-mounts (image is self-contained)
+#    - no --reload; production-grade commands
+#    - internal DB/Redis ports not published to the host
+#    - Caddy binds the real domain from CADDY_SITE_ADDRESS (auto HTTPS)
+# ============================================================
+
+name: telegram-crm
+
+services:
+  postgres:
+    ports: []            # do not expose Postgres publicly in prod
+
+  redis:
+    ports: []            # do not expose Redis publicly in prod
+
+  backend:
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli ensure-admin && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
+    volumes: []          # use baked image, no bind-mount
+    ports: []            # reachable only through Caddy
+
+  worker:
+    command: ["celery", "-A", "worker.celery_app.celery_app", "worker", "--loglevel=warning", "--concurrency=4"]
+    volumes: []
+
+  beat:
+    command: ["celery", "-A", "worker.celery_app.celery_app", "beat", "--loglevel=warning"]
+    volumes: []
+
+  engine:
+    command: ["python", "-m", "engine.main"]
+    volumes:
+      - ./sessions:/app/sessions
+
+  frontend:
+    command: ["sh", "-c", "npm run build && npm run preview -- --host 0.0.0.0 --port 5173"]
+    volumes: []
+    ports: []
+
+  caddy:
+    environment:
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:?set your domain in .env for production}

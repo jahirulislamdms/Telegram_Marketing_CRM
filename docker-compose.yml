@@ -1,0 +1,133 @@
+# ============================================================
+#  Telegram Marketing CRM — development stack
+#  Usage:  docker compose up --build
+#  Services: postgres, redis, backend (FastAPI), worker + beat
+#  (Celery), engine (Telegram service), frontend (Vite), caddy.
+# ============================================================
+
+name: telegram-crm
+
+x-backend-build: &backend-build
+  build:
+    context: ./backend
+  env_file: .env
+  environment:
+    POSTGRES_HOST: postgres
+    REDIS_HOST: redis
+  volumes:
+    - ./backend:/app
+  restart: unless-stopped
+
+services:
+  # ---- Data stores ---------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crm}
+      POSTGRES_DB: ${POSTGRES_DB:-telegram_crm}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crm} -d ${POSTGRES_DB:-telegram_crm}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---- Backend API ---------------------------------------------------------
+  backend:
+    <<: *backend-build
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli ensure-admin && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---- Celery worker + scheduler ------------------------------------------
+  worker:
+    <<: *backend-build
+    command: ["celery", "-A", "worker.celery_app.celery_app", "worker", "--loglevel=info"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  beat:
+    <<: *backend-build
+    command: ["celery", "-A", "worker.celery_app.celery_app", "beat", "--loglevel=info"]
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ---- Telegram Engine Service --------------------------------------------
+  engine:
+    <<: *backend-build
+    command: ["python", "-m", "engine.main"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./sessions:/app/sessions
+
+  # ---- Frontend (Vite dev server) -----------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+
+  # ---- Reverse proxy / TLS -------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS::80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
