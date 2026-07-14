@@ -93,6 +93,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    expose:
+      - "9100"
     volumes:
       - ./backend:/app
       - ./sessions:/app/sessions

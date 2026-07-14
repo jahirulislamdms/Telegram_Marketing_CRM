@@ -82,3 +82,118 @@ export const meApi = {
 export const auditApi = {
   list: () => apiFetch<AuditEvent[]>('/audit'),
 }
+
+// ---- Accounts & proxies (Phase 2) ----
+
+export interface Account {
+  id: number
+  label: string
+  phone: string | null
+  api_id: string | null
+  session_ref: string | null
+  proxy_id: number | null
+  status: string
+  warmup_stage: number
+  daily_cap: number
+  actions_today: number
+  last_action_at: string | null
+  spam_state: string
+  created_at: string
+}
+
+export interface AccountStatus {
+  id: number
+  label: string
+  status: string
+  connected: boolean
+  authorized: boolean
+  telegram_user: Record<string, unknown> | null
+  engine_reachable: boolean
+  detail: string | null
+}
+
+export interface CreateAccountInput {
+  label: string
+  phone?: string | null
+  api_id?: string | null
+  api_hash?: string | null
+  assign_proxy: boolean
+}
+
+export interface Proxy {
+  id: number
+  type: string
+  host: string
+  port: number
+  username: string | null
+  is_active: boolean
+  assigned_account_id: number | null
+  health: string
+  last_checked_at: string | null
+  notes: string | null
+  created_at: string
+}
+
+export interface ProxyImportResult {
+  imported: number
+  skipped_duplicates: number
+  invalid: string[]
+  total_in_pool: number
+}
+
+export interface QrStatus {
+  status: 'waiting' | 'password_needed' | 'authorized' | 'expired' | 'error'
+  url: string | null
+  telegram_user: Record<string, unknown> | null
+  detail: string | null
+}
+
+export interface LoginResult {
+  status: 'authorized' | 'password_needed' | 'error'
+  telegram_user: Record<string, unknown> | null
+  detail: string | null
+}
+
+export const accountsApi = {
+  list: () => apiFetch<Account[]>('/accounts'),
+  create: (data: CreateAccountInput) =>
+    apiFetch<Account>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
+  remove: (id: number) => apiFetch<void>(`/accounts/${id}`, { method: 'DELETE' }),
+  status: (id: number) => apiFetch<AccountStatus>(`/accounts/${id}/status`),
+  logout: (id: number) => apiFetch<Account>(`/accounts/${id}/logout`, { method: 'POST' }),
+  qrStart: (id: number) =>
+    apiFetch<{ url: string }>(`/accounts/${id}/login/qr`, { method: 'POST' }),
+  qrStatus: (id: number) => apiFetch<QrStatus>(`/accounts/${id}/login/qr`),
+  qrPassword: (id: number, password: string) =>
+    apiFetch<LoginResult>(`/accounts/${id}/login/qr/password`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
+  phoneSendCode: (id: number, phone: string) =>
+    apiFetch<{ phone_code_hash: string }>(`/accounts/${id}/login/phone/send-code`, {
+      method: 'POST',
+      body: JSON.stringify({ phone }),
+    }),
+  phoneSignIn: (
+    id: number,
+    body: { phone: string; code: string; phone_code_hash: string; password?: string },
+  ) =>
+    apiFetch<LoginResult>(`/accounts/${id}/login/phone/sign-in`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  importSession: (id: number, session_string: string) =>
+    apiFetch<LoginResult>(`/accounts/${id}/login/session`, {
+      method: 'POST',
+      body: JSON.stringify({ session_string }),
+    }),
+}
+
+export const proxiesApi = {
+  list: () => apiFetch<Proxy[]>('/proxies'),
+  import: (raw: string) =>
+    apiFetch<ProxyImportResult>('/proxies/import', {
+      method: 'POST',
+      body: JSON.stringify({ raw }),
+    }),
+}

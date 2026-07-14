@@ -1,11 +1,20 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { meApi } from '../api/client'
 import { applyTheme } from '../lib/theme'
-import { useAuth } from '../store/auth'
+import { useAuth, type Role } from '../store/auth'
 
-const NAV = [
+interface NavItem {
+  to: string
+  label: string
+  icon: string
+  end: boolean
+  roles?: Role[]
+}
+
+const NAV: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: '▤', end: true },
-  { to: '/staff', label: 'Staff', icon: '☰', adminOnly: true, end: false },
+  { to: '/accounts', label: 'Accounts', icon: '⊚', end: false, roles: ['admin', 'manager'] },
+  { to: '/staff', label: 'Staff', icon: '☰', end: false, roles: ['admin'] },
 ]
 
 export default function AppLayout() {
@@ -37,7 +46,7 @@ export default function AppLayout() {
       <aside className="sidebar">
         <div className="brand" title="Telegram Marketing CRM">TG</div>
         <nav>
-          {NAV.filter((i) => !i.adminOnly || user.role === 'admin').map((item) => (
+          {NAV.filter((i) => !i.roles || i.roles.includes(user.role)).map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

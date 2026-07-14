@@ -52,9 +52,16 @@ class Settings(BaseSettings):
     # sqlite+aiosqlite:///./local.db
     database_url_env: str = Field(default="", validation_alias="DATABASE_URL")
 
-    # ---- Telegram (used from Phase 2) ----
+    # ---- Telegram (shared API credentials) ----
     telegram_api_id: str = ""
     telegram_api_hash: str = ""
+
+    # ---- Telegram Engine Service ----
+    # Internal URL the backend uses to reach the engine's private HTTP API.
+    engine_url: str = "http://engine:9100"
+    engine_timeout_seconds: float = 30.0
+    # Where the engine persists Telethon session files (mounted volume).
+    sessions_dir: str = "./sessions"
 
     @property
     def cors_origin_list(self) -> list[str]:

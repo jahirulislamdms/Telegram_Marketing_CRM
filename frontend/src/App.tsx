@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import ProtectedRoute from './components/ProtectedRoute'
+import Accounts from './pages/Accounts'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
 import Staff from './pages/Staff'
@@ -18,6 +19,14 @@ export default function App() {
         }
       >
         <Route path="/" element={<Dashboard />} />
+        <Route
+          path="/accounts"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <Accounts />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/staff"
           element={
