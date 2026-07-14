@@ -23,6 +23,7 @@ from engine.schemas import (
     PhoneSignIn,
     ResolvePhone,
     ResolveUsername,
+    SendFile,
     SendRequest,
     SessionImport,
 )
@@ -232,6 +233,22 @@ async def send_message(account_id: int, body: SendRequest) -> dict:
     try:
         return await _manager().send_dm(
             account_id, body.api_id, body.api_hash, _proxy(body), body.target, body.text
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/send-file")
+async def send_file(account_id: int, body: SendFile) -> dict:
+    try:
+        return await _manager().send_file(
+            account_id,
+            body.api_id,
+            body.api_hash,
+            _proxy(body),
+            body.target,
+            body.file,
+            body.caption,
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

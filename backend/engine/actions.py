@@ -47,3 +47,9 @@ async def join_chat(client, link: str) -> dict:
 async def send_dm(client, target: str, text: str) -> dict:
     await client.send_message(target, text)
     return {"sent": True}
+
+
+async def send_file(client, target: str, file: str, caption: str | None = None) -> dict:
+    # Telethon accepts a URL, local path, or bytes for ``file``.
+    await client.send_file(target, file, caption=caption)
+    return {"sent": True}

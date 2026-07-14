@@ -45,6 +45,12 @@ class SendRequest(Credentials):
     text: str
 
 
+class SendFile(Credentials):
+    target: str
+    file: str
+    caption: str | None = None
+
+
 class ResolveUsername(Credentials):
     username: str
 

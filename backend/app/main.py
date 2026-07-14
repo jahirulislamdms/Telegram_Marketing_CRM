@@ -11,10 +11,14 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.contacts import router as contacts_router
 from app.api.health import router as health_router
+from app.api.inbox import inbox_ws
+from app.api.inbox import router as inbox_router
 from app.api.proxies import router as proxies_router
 from app.api.users import router as users_router
 from app.api.warmup import router as warmup_router
 from app.config import settings
+from app import realtime
+from app.services import inbox_consumer
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -31,7 +35,11 @@ async def lifespan(app: FastAPI):
         settings.app_version,
         settings.environment,
     )
+    await realtime.startup()
+    await inbox_consumer.startup()
     yield
+    await inbox_consumer.shutdown()
+    await realtime.shutdown()
     log.info("Shutting down %s", settings.app_name)
 
 
@@ -58,6 +66,8 @@ def create_app() -> FastAPI:
     app.include_router(proxies_router, prefix="/api")
     app.include_router(warmup_router, prefix="/api")
     app.include_router(contacts_router, prefix="/api")
+    app.include_router(inbox_router, prefix="/api")
+    app.add_api_websocket_route("/ws/inbox", inbox_ws)
     return app
 
 

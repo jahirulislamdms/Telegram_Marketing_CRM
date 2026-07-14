@@ -194,6 +194,16 @@ async def send_message(
     return await _request("POST", f"/clients/{account.id}/message", json=body)
 
 
+async def send_file(
+    account: Account, proxy: Proxy | None, target: str, file: str, caption: str | None
+) -> dict:
+    body = credentials_payload(account, proxy)
+    body["target"] = target
+    body["file"] = file
+    body["caption"] = caption
+    return await _request("POST", f"/clients/{account.id}/send-file", json=body)
+
+
 async def resolve_username(
     account: Account, proxy: Proxy | None, username: str
 ) -> dict:

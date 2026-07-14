@@ -17,6 +17,7 @@ const NAV: NavItem[] = [
   { to: '/warmup', label: 'Warmup', icon: '♨', end: false, roles: ['admin', 'manager'] },
   { to: '/contacts', label: 'Contacts', icon: '☺', end: false },
   { to: '/pipeline', label: 'Pipeline', icon: '▦', end: false },
+  { to: '/inbox', label: 'Inbox', icon: '✉', end: false },
   { to: '/staff', label: 'Staff', icon: '☰', end: false, roles: ['admin'] },
 ]
 

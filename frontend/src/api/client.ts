@@ -422,6 +422,87 @@ export const contactsApi = {
   },
 }
 
+// ---- Inbox (Phase 6) ----
+
+export const CONVERSATION_STATUSES = [
+  'new',
+  'contacted',
+  'replied',
+  'joined',
+  'customer',
+  'opted_out',
+  'blocked',
+] as const
+
+export type ConversationStatus = (typeof CONVERSATION_STATUSES)[number]
+
+export interface Conversation {
+  id: number
+  contact_id: number | null
+  account_id: number
+  peer_id: number | null
+  label: string
+  last_message_at: string | null
+  last_message_preview: string | null
+  unread_count: number
+  status: string
+}
+
+export interface InboxMessage {
+  id: number
+  conversation_id: number
+  direction: 'in' | 'out'
+  account_id: number | null
+  sender: string
+  type: string
+  body: string | null
+  media_ref: string | null
+  status: string
+  created_at: string | null
+}
+
+export interface Thread {
+  conversation: Conversation
+  messages: InboxMessage[]
+  contact: Record<string, unknown> | null
+}
+
+export interface InboxEvent {
+  type: 'message' | 'conversation' | 'connected'
+  conversation?: Conversation
+  message?: InboxMessage
+}
+
+export const inboxApi = {
+  listConversations: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString()
+    return apiFetch<Conversation[]>(`/inbox/conversations${qs ? `?${qs}` : ''}`)
+  },
+  getThread: (id: number) => apiFetch<Thread>(`/inbox/conversations/${id}`),
+  markRead: (id: number) =>
+    apiFetch<Conversation>(`/inbox/conversations/${id}/read`, { method: 'POST' }),
+  setStatus: (id: number, status: ConversationStatus) =>
+    apiFetch<Conversation>(`/inbox/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  sendReply: (id: number, body: { type: string; body?: string; media_url?: string }) =>
+    apiFetch<InboxMessage>(`/inbox/conversations/${id}/send`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  simulateIncoming: (data: {
+    account_id: number
+    peer_id?: number
+    peer_name?: string
+    text: string
+  }) =>
+    apiFetch<Conversation>('/inbox/simulate-incoming', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+}
+
 export const warmupApi = {
   listRuns: () => apiFetch<WarmupRun[]>('/warmup/runs'),
   createRun: (data: CreateRunInput) =>

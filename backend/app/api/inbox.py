@@ -1,0 +1,306 @@
+"""Unified live inbox: conversations, threads, replies, status, and the WS stream."""
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import get_current_user, require_manager
+from app.auth.security import ACCESS_TOKEN_TYPE, JWTError, decode_token
+from app.db.models.contact import Contact
+from app.db.models.proxy import Proxy
+from app.db.models.user import User
+from app.db.session import get_db
+from app.realtime import manager, publish
+from app.schemas.inbox import (
+    BulkIds,
+    BulkStatus,
+    ConversationOut,
+    MessageOut,
+    SendReply,
+    SetStatus,
+    SimulateIncoming,
+    ThreadOut,
+)
+from app.services import accounts as account_service
+from app.services import audit
+from app.services import engine_client
+from app.services import inbox as inbox_service
+
+router = APIRouter(prefix="/inbox", tags=["inbox"])
+
+
+def _is_manager(user: User) -> bool:
+    return user.role in ("admin", "manager")
+
+
+async def _get_conversation_or_404(db: AsyncSession, conversation_id: int):
+    conversation = await inbox_service.get_by_id(db, conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    return conversation
+
+
+async def _ensure_access(db: AsyncSession, user: User, conversation) -> None:
+    if _is_manager(user):
+        return
+    if conversation.contact_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+    contact = await db.get(Contact, conversation.contact_id)
+    if contact is None or contact.assigned_agent_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not permitted")
+
+
+async def _broadcast_message(db: AsyncSession, conversation, message) -> None:
+    await publish(
+        {
+            "type": "message",
+            "conversation": await inbox_service.conversation_dict(db, conversation),
+            "message": inbox_service.message_dict(message),
+        }
+    )
+
+
+async def _broadcast_conversation(db: AsyncSession, conversation) -> None:
+    await publish(
+        {
+            "type": "conversation",
+            "conversation": await inbox_service.conversation_dict(db, conversation),
+        }
+    )
+
+
+# ------------------------------------------------------------- conversations -
+
+
+@router.get("/conversations", response_model=list[ConversationOut])
+async def list_conversations(
+    account_id: int | None = Query(default=None),
+    conv_status: str | None = Query(default=None, alias="status"),
+    unread: bool = Query(default=False),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list:
+    agent_filter = None if _is_manager(user) else user.id
+    conversations = await inbox_service.list_conversations(
+        db,
+        account_id=account_id,
+        status=conv_status,
+        unread_only=unread,
+        assigned_agent_id=agent_filter,
+    )
+    return [await inbox_service.conversation_dict(db, c) for c in conversations]
+
+
+@router.get("/conversations/{conversation_id}", response_model=ThreadOut)
+async def get_thread(
+    conversation_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ThreadOut:
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+    messages = await inbox_service.get_thread(db, conversation_id)
+    contact = None
+    if conversation.contact_id:
+        c = await db.get(Contact, conversation.contact_id)
+        if c is not None:
+            contact = {
+                "id": c.id,
+                "label": c.display_label,
+                "phone": c.phone,
+                "username": c.username,
+                "stage": c.stage,
+                "source": c.source,
+                "tags": c.tags,
+                "consent": c.consent,
+                "opted_out": c.opted_out,
+            }
+    return ThreadOut(
+        conversation=ConversationOut(**await inbox_service.conversation_dict(db, conversation)),
+        messages=[MessageOut(**inbox_service.message_dict(m)) for m in messages],
+        contact=contact,
+    )
+
+
+@router.post("/conversations/{conversation_id}/read", response_model=ConversationOut)
+async def mark_read(
+    conversation_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationOut:
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+    await inbox_service.mark_read(db, conversation)
+    await _broadcast_conversation(db, conversation)
+    return ConversationOut(**await inbox_service.conversation_dict(db, conversation))
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
+async def set_status(
+    conversation_id: int,
+    payload: SetStatus,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationOut:
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+    await inbox_service.set_status(db, conversation, payload.status)
+    await _broadcast_conversation(db, conversation)
+    return ConversationOut(**await inbox_service.conversation_dict(db, conversation))
+
+
+@router.post("/conversations/{conversation_id}/send", response_model=MessageOut)
+async def send_reply(
+    conversation_id: int,
+    payload: SendReply,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessageOut:
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+
+    account = await account_service.get_by_id(db, conversation.account_id)
+    if account is None or not account.session_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Conversation's account is not logged in",
+        )
+    target = await inbox_service.reply_target(db, conversation)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No reachable recipient"
+        )
+    proxy = await db.get(Proxy, account.proxy_id) if account.proxy_id else None
+
+    try:
+        if payload.type == "image":
+            if not payload.media_url:
+                raise HTTPException(status_code=400, detail="media_url required for image")
+            await engine_client.send_file(
+                account, proxy, target, payload.media_url, payload.body
+            )
+        else:
+            await engine_client.send_message(account, proxy, target, payload.body or "")
+    except engine_client.EngineUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+
+    message = await inbox_service.record_outgoing(
+        db,
+        conversation=conversation,
+        account_id=account.id,
+        agent_id=user.id,
+        type=payload.type,
+        body=payload.body,
+        media_ref=payload.media_url,
+    )
+    await _broadcast_message(db, conversation, message)
+    return MessageOut(**inbox_service.message_dict(message))
+
+
+# ------------------------------------------------------------- bulk actions --
+
+
+@router.post("/bulk/read", response_model=int)
+async def bulk_read(
+    payload: BulkIds,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    count = 0
+    for cid in payload.conversation_ids:
+        conversation = await inbox_service.get_by_id(db, cid)
+        if conversation is not None:
+            await inbox_service.mark_read(db, conversation)
+            await _broadcast_conversation(db, conversation)
+            count += 1
+    return count
+
+
+@router.post("/bulk/status", response_model=int)
+async def bulk_status(
+    payload: BulkStatus,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    count = 0
+    for cid in payload.conversation_ids:
+        conversation = await inbox_service.get_by_id(db, cid)
+        if conversation is not None:
+            await inbox_service.set_status(db, conversation, payload.status)
+            await _broadcast_conversation(db, conversation)
+            count += 1
+    return count
+
+
+# ---------------------------------------------- simulate incoming (dev/test) -
+
+
+@router.post("/simulate-incoming", response_model=ConversationOut)
+async def simulate_incoming(
+    payload: SimulateIncoming,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationOut:
+    """Inject an incoming message.
+
+    In production, the engine's Telethon listener publishes real incoming
+    messages via Redis; this endpoint drives the same record+broadcast path for
+    development and testing.
+    """
+    conversation, message = await inbox_service.record_incoming(
+        db,
+        account_id=payload.account_id,
+        peer_id=payload.peer_id,
+        peer_name=payload.peer_name,
+        peer_username=payload.peer_username,
+        text=payload.text,
+    )
+    await audit.record_event(
+        db,
+        type="inbox.simulate_incoming",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"conversation:{conversation.id}",
+    )
+    await _broadcast_message(db, conversation, message)
+    return ConversationOut(**await inbox_service.conversation_dict(db, conversation))
+
+
+# --------------------------------------------------------------- websocket ---
+
+
+async def _authenticate_ws(token: str | None) -> int | None:
+    if not token:
+        return None
+    try:
+        payload = decode_token(token)
+        if payload.get("type") != ACCESS_TOKEN_TYPE:
+            return None
+        return int(payload["sub"])
+    except (JWTError, KeyError, ValueError, TypeError):
+        return None
+
+
+async def inbox_ws(websocket: WebSocket) -> None:
+    token = websocket.query_params.get("token")
+    user_id = await _authenticate_ws(token)
+    if user_id is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await manager.connect(websocket)
+    try:
+        await websocket.send_json({"type": "connected"})
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception:  # noqa: BLE001
+        manager.disconnect(websocket)

@@ -90,6 +90,11 @@ class SessionManager:
         if not client.is_connected():
             await client.connect()
         self.clients[account_id] = client
+        # Register the incoming-message listener once the client is live.
+        if await client.is_user_authorized():
+            from engine.listener import register_listener
+
+            register_listener(client, account_id)
         return client
 
     # ----------------------------------------------------------- lifecycle ---
@@ -312,6 +317,20 @@ class SessionManager:
         async with self._lock(account_id):
             client = await self._authorized_client(account_id, api_id, api_hash, proxy)
             return await action_ops.send_dm(client, target, text)
+
+    async def send_file(
+        self,
+        account_id: int,
+        api_id: str,
+        api_hash: str,
+        proxy: dict | None,
+        target: str,
+        file: str,
+        caption: str | None,
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await action_ops.send_file(client, target, file, caption)
 
     # ------------------------------------------------------------- resolve ---
 
