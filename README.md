@@ -86,9 +86,9 @@ npm run dev
 ## Build progress
 
 Progress is tracked in the spec's **§13 Build Progress Tracker** and **§14 Activity Log**.
-Current status: **Phase 2 — Account manager & login** complete (Telegram Engine
-Service, QR/phone/session login, per-account proxy binding, Accounts UI). Phases 0–1
-(foundation, auth/RBAC) done.
+Current status: **Phase 3 — Account health & manual status** complete (@SpamBot
+spam-check, ban-check, unspam/unfreeze, manual status override, auto-quarantine).
+Phases 0–2 (foundation, auth/RBAC, account manager & login) done.
 
 First run creates an admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
 in `.env` — change these before production. Set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`

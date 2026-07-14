@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Where the engine persists Telethon session files (mounted volume).
     sessions_dir: str = "./sessions"
 
+    # ---- Safety / anti-ban (Phase 3; overridable from Settings later) ----
+    # Auto-quarantine an account when a health check reports it is limited/flagged.
+    auto_quarantine_on_warning: bool = True
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

@@ -1,6 +1,7 @@
 """Account schemas."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -89,4 +90,31 @@ class LoginResultResponse(BaseModel):
     # authorized | password_needed | error
     status: str
     telegram_user: dict | None = None
+    detail: str | None = None
+
+
+# ---- Health / status (Phase 3) ----
+
+
+class AccountStatusUpdate(BaseModel):
+    status: Literal["active", "warming", "quarantined", "banned", "logged_out"]
+
+
+class SpamCheckResult(BaseModel):
+    spam_state: str  # clean | limited | banned | unknown
+    reply: str | None = None
+    quarantined: bool = False
+    detail: str | None = None
+
+
+class BanCheckResult(BaseModel):
+    state: str  # ok | banned | unauthorized | error
+    telegram_user: dict | None = None
+    status: str  # the account's resulting status
+    detail: str | None = None
+
+
+class AppealResult(BaseModel):
+    submitted: bool
+    reply: str | None = None
     detail: str | None = None

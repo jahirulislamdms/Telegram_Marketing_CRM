@@ -6,6 +6,7 @@ import {
   type Account,
   type Proxy,
 } from '../api/client'
+import AccountHealthModal from '../components/AccountHealthModal'
 import AccountLoginModal from '../components/AccountLoginModal'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -14,6 +15,13 @@ const STATUS_BADGE: Record<string, string> = {
   quarantined: 'badge--err',
   banned: 'badge--err',
   logged_out: 'badge--muted',
+}
+
+const SPAM_BADGE: Record<string, string> = {
+  clean: 'badge--ok',
+  limited: 'badge--wait',
+  banned: 'badge--err',
+  unknown: 'badge--muted',
 }
 
 function errMsg(e: unknown): string {
@@ -27,6 +35,7 @@ export default function Accounts() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loginFor, setLoginFor] = useState<Account | null>(null)
+  const [healthFor, setHealthFor] = useState<Account | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -100,6 +109,7 @@ export default function Accounts() {
                   <th>Label</th>
                   <th>Phone</th>
                   <th>Status</th>
+                  <th>Spam</th>
                   <th>Proxy</th>
                   <th>Today</th>
                   <th></th>
@@ -113,6 +123,11 @@ export default function Accounts() {
                     <td>
                       <span className={`badge ${STATUS_BADGE[a.status] ?? 'badge--muted'}`}>
                         {a.status.replace('_', ' ')}
+                      </span>
+                    </td>
+                    <td>
+                      <span className={`badge ${SPAM_BADGE[a.spam_state] ?? 'badge--muted'}`}>
+                        {a.spam_state}
                       </span>
                     </td>
                     <td>{proxyLabel(a.proxy_id)}</td>
@@ -129,6 +144,9 @@ export default function Accounts() {
                           Log in
                         </button>
                       )}
+                      <button className="btn btn-ghost btn-sm" onClick={() => setHealthFor(a)}>
+                        Health
+                      </button>
                       <button className="btn btn-ghost btn-sm" onClick={() => onRemove(a)}>
                         Remove
                       </button>
@@ -151,6 +169,14 @@ export default function Accounts() {
             setLoginFor(null)
             void load()
           }}
+        />
+      )}
+
+      {healthFor && (
+        <AccountHealthModal
+          account={healthFor}
+          onClose={() => setHealthFor(null)}
+          onChanged={load}
         />
       )}
     </div>

@@ -127,3 +127,38 @@ async def phone_sign_in(
             "password": password,
         },
     )
+
+
+# ---- Health (Phase 3) ----
+
+
+async def spam_check(account: Account, proxy: Proxy | None) -> dict:
+    return await _request(
+        "POST",
+        f"/clients/{account.id}/health/spam-check",
+        json=credentials_payload(account, proxy),
+    )
+
+
+async def ban_check(account: Account, proxy: Proxy | None) -> dict:
+    return await _request(
+        "POST",
+        f"/clients/{account.id}/health/ban-check",
+        json=credentials_payload(account, proxy),
+    )
+
+
+async def request_unspam(account: Account, proxy: Proxy | None) -> dict:
+    return await _request(
+        "POST",
+        f"/clients/{account.id}/health/unspam",
+        json=credentials_payload(account, proxy),
+    )
+
+
+async def request_unfreeze(account: Account, proxy: Proxy | None) -> dict:
+    return await _request(
+        "POST",
+        f"/clients/{account.id}/health/unfreeze",
+        json=credentials_payload(account, proxy),
+    )

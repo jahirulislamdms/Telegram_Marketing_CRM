@@ -154,6 +154,33 @@ export interface LoginResult {
   detail: string | null
 }
 
+export type AccountStatusValue =
+  | 'active'
+  | 'warming'
+  | 'quarantined'
+  | 'banned'
+  | 'logged_out'
+
+export interface SpamCheckResult {
+  spam_state: string
+  reply: string | null
+  quarantined: boolean
+  detail: string | null
+}
+
+export interface BanCheckResult {
+  state: string
+  telegram_user: Record<string, unknown> | null
+  status: string
+  detail: string | null
+}
+
+export interface AppealResult {
+  submitted: boolean
+  reply: string | null
+  detail: string | null
+}
+
 export const accountsApi = {
   list: () => apiFetch<Account[]>('/accounts'),
   create: (data: CreateAccountInput) =>
@@ -187,6 +214,19 @@ export const accountsApi = {
       method: 'POST',
       body: JSON.stringify({ session_string }),
     }),
+  setStatus: (id: number, status: AccountStatusValue) =>
+    apiFetch<Account>(`/accounts/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+  spamCheck: (id: number) =>
+    apiFetch<SpamCheckResult>(`/accounts/${id}/health/spam-check`, { method: 'POST' }),
+  banCheck: (id: number) =>
+    apiFetch<BanCheckResult>(`/accounts/${id}/health/ban-check`, { method: 'POST' }),
+  unspam: (id: number) =>
+    apiFetch<AppealResult>(`/accounts/${id}/health/unspam`, { method: 'POST' }),
+  unfreeze: (id: number) =>
+    apiFetch<AppealResult>(`/accounts/${id}/health/unfreeze`, { method: 'POST' }),
 }
 
 export const proxiesApi = {

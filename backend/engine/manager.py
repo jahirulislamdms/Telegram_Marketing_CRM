@@ -13,6 +13,7 @@ from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import SQLiteSession, StringSession
 
+from engine import health as health_ops
 from engine.proxy import to_telethon_proxy
 
 log = logging.getLogger("engine.manager")
@@ -248,6 +249,45 @@ class SessionManager:
             self.clients[account_id] = client
             self.phone_logins.pop(account_id, None)
             return {"status": "authorized", "user": _user_to_dict(user)}
+
+    # -------------------------------------------------------------- health ---
+
+    async def _authorized_client(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None
+    ) -> TelegramClient:
+        client = await self._connected_client(account_id, api_id, api_hash, proxy)
+        if not await client.is_user_authorized():
+            raise EngineLoginError("account is not logged in")
+        return client
+
+    async def spam_check(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await health_ops.spam_check(client)
+
+    async def ban_check(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None
+    ) -> dict:
+        async with self._lock(account_id):
+            # Ban-check must work even when the account is no longer authorized.
+            client = await self._connected_client(account_id, api_id, api_hash, proxy)
+            return await health_ops.ban_check(client)
+
+    async def request_unspam(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await health_ops.request_unspam(client)
+
+    async def request_unfreeze(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await health_ops.request_unfreeze(client)
 
     # ------------------------------------------------------ session import ---
 

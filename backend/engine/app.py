@@ -152,3 +152,46 @@ async def import_session(account_id: int, body: SessionImport) -> dict:
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ------------------------------------------------------------------ health ---
+
+
+@app.post("/clients/{account_id}/health/spam-check")
+async def spam_check(account_id: int, cred: Credentials) -> dict:
+    try:
+        return await _manager().spam_check(
+            account_id, cred.api_id, cred.api_hash, _proxy(cred)
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/health/ban-check")
+async def ban_check(account_id: int, cred: Credentials) -> dict:
+    try:
+        return await _manager().ban_check(
+            account_id, cred.api_id, cred.api_hash, _proxy(cred)
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/health/unspam")
+async def unspam(account_id: int, cred: Credentials) -> dict:
+    try:
+        return await _manager().request_unspam(
+            account_id, cred.api_id, cred.api_hash, _proxy(cred)
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/health/unfreeze")
+async def unfreeze(account_id: int, cred: Credentials) -> dict:
+    try:
+        return await _manager().request_unfreeze(
+            account_id, cred.api_id, cred.api_hash, _proxy(cred)
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

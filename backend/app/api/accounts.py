@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_manager
+from app.config import settings
 from app.db.models.proxy import Proxy
 from app.db.models.user import User
 from app.db.session import get_db
@@ -15,6 +16,9 @@ from app.schemas.account import (
     AccountCreate,
     AccountOut,
     AccountStatus,
+    AccountStatusUpdate,
+    AppealResult,
+    BanCheckResult,
     LoginResultResponse,
     PasswordRequest,
     PhoneSendCodeRequest,
@@ -23,6 +27,7 @@ from app.schemas.account import (
     QrLoginResponse,
     QrStatusResponse,
     SessionStringImport,
+    SpamCheckResult,
 )
 from app.services import accounts as account_service
 from app.services import audit
@@ -304,3 +309,164 @@ async def logout_account(
         entity_ref=f"account:{account_id}",
     )
     return account
+
+
+# ------------------------------------------------------- status & health -----
+
+
+@router.patch("/{account_id}/status", response_model=AccountOut)
+async def override_status(
+    account_id: int,
+    payload: AccountStatusUpdate,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> AccountOut:
+    """Manually override an account's status."""
+    account = await _get_account_or_404(db, account_id)
+    previous = account.status
+    updated = await account_service.set_status(db, account, payload.status)
+    await audit.record_event(
+        db,
+        type="account.status_override",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"account:{account_id}",
+        meta={"from": previous, "to": payload.status},
+    )
+    return updated
+
+
+def _require_logged_in(account) -> None:
+    if not account.session_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account is not logged in",
+        )
+
+
+@router.post("/{account_id}/health/spam-check", response_model=SpamCheckResult)
+async def spam_check(
+    account_id: int,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> SpamCheckResult:
+    account = await _get_account_or_404(db, account_id)
+    _require_logged_in(account)
+    proxy = await _account_proxy(db, account)
+    try:
+        data = await engine_client.spam_check(account, proxy)
+    except engine_client.EngineUnavailable as exc:
+        raise _engine_error(exc)
+
+    spam_state = data.get("spam_state", "unknown")
+    await account_service.set_spam_state(db, account, spam_state)
+
+    quarantined = False
+    if spam_state in ("limited", "banned") and settings.auto_quarantine_on_warning:
+        new_status = "banned" if spam_state == "banned" else "quarantined"
+        await account_service.set_status(db, account, new_status)
+        quarantined = True
+        await audit.record_event(
+            db,
+            type="account.quarantine",
+            actor_type="system",
+            entity_ref=f"account:{account_id}",
+            meta={"reason": f"spam_state={spam_state}", "status": new_status},
+        )
+
+    await audit.record_event(
+        db,
+        type="account.spam_check",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"account:{account_id}",
+        meta={"spam_state": spam_state},
+    )
+    return SpamCheckResult(
+        spam_state=spam_state,
+        reply=data.get("reply"),
+        quarantined=quarantined,
+        detail=data.get("detail"),
+    )
+
+
+@router.post("/{account_id}/health/ban-check", response_model=BanCheckResult)
+async def ban_check(
+    account_id: int,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> BanCheckResult:
+    account = await _get_account_or_404(db, account_id)
+    _require_logged_in(account)
+    proxy = await _account_proxy(db, account)
+    try:
+        data = await engine_client.ban_check(account, proxy)
+    except engine_client.EngineUnavailable as exc:
+        raise _engine_error(exc)
+
+    state = data.get("state", "error")
+    if state == "banned":
+        await account_service.set_status(db, account, "banned")
+        await audit.record_event(
+            db,
+            type="account.quarantine",
+            actor_type="system",
+            entity_ref=f"account:{account_id}",
+            meta={"reason": "ban_check", "status": "banned"},
+        )
+    elif state == "unauthorized":
+        await account_service.mark_logged_out(db, account)
+
+    await db.refresh(account)
+    return BanCheckResult(
+        state=state,
+        telegram_user=data.get("user"),
+        status=account.status,
+        detail=data.get("detail"),
+    )
+
+
+@router.post("/{account_id}/health/unspam", response_model=AppealResult)
+async def request_unspam(
+    account_id: int,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> AppealResult:
+    account = await _get_account_or_404(db, account_id)
+    _require_logged_in(account)
+    proxy = await _account_proxy(db, account)
+    try:
+        data = await engine_client.request_unspam(account, proxy)
+    except engine_client.EngineUnavailable as exc:
+        raise _engine_error(exc)
+    await audit.record_event(
+        db,
+        type="account.unspam_request",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"account:{account_id}",
+    )
+    return AppealResult(**data)
+
+
+@router.post("/{account_id}/health/unfreeze", response_model=AppealResult)
+async def request_unfreeze(
+    account_id: int,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> AppealResult:
+    account = await _get_account_or_404(db, account_id)
+    _require_logged_in(account)
+    proxy = await _account_proxy(db, account)
+    try:
+        data = await engine_client.request_unfreeze(account, proxy)
+    except engine_client.EngineUnavailable as exc:
+        raise _engine_error(exc)
+    await audit.record_event(
+        db,
+        type="account.unfreeze_request",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"account:{account_id}",
+    )
+    return AppealResult(**data)

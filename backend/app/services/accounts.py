@@ -44,6 +44,21 @@ async def set_status(db: AsyncSession, account: Account, status: str) -> Account
     return account
 
 
+async def set_spam_state(db: AsyncSession, account: Account, spam_state: str) -> Account:
+    account.spam_state = spam_state
+    await db.commit()
+    await db.refresh(account)
+    return account
+
+
+async def quarantine(db: AsyncSession, account: Account) -> Account:
+    """Auto-quarantine hook: pull the account from rotation."""
+    account.status = "quarantined"
+    await db.commit()
+    await db.refresh(account)
+    return account
+
+
 async def mark_logged_in(db: AsyncSession, account: Account) -> Account:
     account.session_ref = str(account.id)
     account.status = "active"
