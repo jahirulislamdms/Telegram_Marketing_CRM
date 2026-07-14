@@ -1,0 +1,318 @@
+"""Contacts & CRM endpoints.
+
+Managers/Admins manage all contacts; Agents see and act on their own assigned
+contacts only. Import/resolve/bulk operations are Manager/Admin.
+"""
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.auth.dependencies import get_current_user, require_manager
+from app.db.models.contact import Contact
+from app.db.models.user import User
+from app.db.session import get_db
+from app.schemas.contact import (
+    BulkAssign,
+    BulkIds,
+    BulkResolveResult,
+    BulkStageUpdate,
+    ContactCreate,
+    ContactOut,
+    ContactUpdate,
+    ImportResult,
+    MessageRequest,
+    ResolveResult,
+)
+from app.services import accounts as account_service
+from app.services import audit
+from app.services import contacts as contact_service
+from app.services import engine_client
+
+router = APIRouter(prefix="/contacts", tags=["contacts"])
+
+
+def _is_manager(user: User) -> bool:
+    return user.role in ("admin", "manager")
+
+
+async def _get_contact_or_404(db: AsyncSession, contact_id: int) -> Contact:
+    contact = await contact_service.get_by_id(db, contact_id)
+    if contact is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found")
+    return contact
+
+
+def _ensure_can_edit(user: User, contact: Contact) -> None:
+    if _is_manager(user):
+        return
+    if contact.assigned_agent_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only act on contacts assigned to you",
+        )
+
+
+# ------------------------------------------------------- import / template ---
+
+
+@router.get("/import-template")
+async def import_template(_: User = Depends(require_manager)) -> Response:
+    return Response(
+        content=contact_service.CSV_TEMPLATE,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=contacts_template.csv"},
+    )
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_contacts(
+    file: UploadFile = File(...),
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> ImportResult:
+    data = await file.read()
+    try:
+        rows = contact_service.parse_upload(file.filename or "", data)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not parse file: {exc}",
+        )
+    result = await contact_service.import_contacts(db, rows)
+    await audit.record_event(
+        db,
+        type="contact.import",
+        actor_type="user",
+        actor_id=user.id,
+        meta={k: result[k] for k in ("imported", "skipped_duplicates", "rejected_no_consent")},
+    )
+    return ImportResult(**result)
+
+
+# ------------------------------------------------------------ bulk actions ---
+
+
+@router.post("/resolve", response_model=BulkResolveResult)
+async def bulk_resolve(
+    payload: BulkIds,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> BulkResolveResult:
+    resolved = no_tg = failed = 0
+    for contact_id in payload.contact_ids:
+        contact = await contact_service.get_by_id(db, contact_id)
+        if contact is None:
+            failed += 1
+            continue
+        try:
+            updated = await contact_service.resolve_contact(db, contact)
+        except (contact_service.NoResolverAccount, engine_client.EngineUnavailable):
+            failed += 1
+            continue
+        if updated.resolution_status == "resolved":
+            resolved += 1
+        elif updated.resolution_status == "no_telegram":
+            no_tg += 1
+        else:
+            failed += 1
+    return BulkResolveResult(resolved=resolved, no_telegram=no_tg, failed=failed)
+
+
+@router.post("/bulk/stage", response_model=int)
+async def bulk_stage(
+    payload: BulkStageUpdate,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    count = 0
+    for contact_id in payload.contact_ids:
+        contact = await contact_service.get_by_id(db, contact_id)
+        if contact is None:
+            continue
+        await contact_service.update_contact(
+            db, contact, stage=payload.stage.value, opted_out=payload.stage.value == "opted_out" or None
+        )
+        count += 1
+    return count
+
+
+@router.post("/bulk/assign", response_model=int)
+async def bulk_assign(
+    payload: BulkAssign,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    count = 0
+    for contact_id in payload.contact_ids:
+        contact = await contact_service.get_by_id(db, contact_id)
+        if contact is None:
+            continue
+        contact.assigned_agent_id = payload.assigned_agent_id
+        count += 1
+    await db.commit()
+    return count
+
+
+@router.post("/bulk/delete", response_model=int)
+async def bulk_delete(
+    payload: BulkIds,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    count = 0
+    for contact_id in payload.contact_ids:
+        contact = await contact_service.get_by_id(db, contact_id)
+        if contact is not None:
+            await db.delete(contact)
+            count += 1
+    await db.commit()
+    return count
+
+
+# -------------------------------------------------------------------- CRUD ---
+
+
+@router.get("", response_model=list[ContactOut])
+async def list_contacts(
+    stage: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    resolution: str | None = Query(default=None),
+    q: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list:
+    agent_filter = None if _is_manager(user) else user.id
+    return await contact_service.list_contacts(
+        db,
+        assigned_agent_id=agent_filter,
+        stage=stage,
+        source=source,
+        resolution=resolution,
+        q=q,
+    )
+
+
+@router.post("", response_model=ContactOut, status_code=status.HTTP_201_CREATED)
+async def create_contact(
+    payload: ContactCreate,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> ContactOut:
+    return await contact_service.create_contact(
+        db,
+        name=payload.name,
+        phone=payload.phone,
+        username=payload.username,
+        source=payload.source,
+        consent=payload.consent,
+        tags=payload.tags,
+    )
+
+
+@router.get("/{contact_id}", response_model=ContactOut)
+async def get_contact(
+    contact_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ContactOut:
+    contact = await _get_contact_or_404(db, contact_id)
+    _ensure_can_edit(user, contact)
+    return contact
+
+
+@router.patch("/{contact_id}", response_model=ContactOut)
+async def update_contact(
+    contact_id: int,
+    payload: ContactUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ContactOut:
+    contact = await _get_contact_or_404(db, contact_id)
+    _ensure_can_edit(user, contact)
+    # Agents may not reassign a contact to someone else.
+    if not _is_manager(user) and payload.assigned_agent_id is not None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot reassign")
+
+    fields = payload.model_dump(exclude_unset=True)
+    if fields.get("stage") is not None:
+        fields["stage"] = payload.stage.value
+        if payload.stage.value == "opted_out":
+            fields["opted_out"] = True
+    await contact_service.update_contact(db, contact, **fields)
+    return contact
+
+
+@router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_contact(
+    contact_id: int,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    contact = await _get_contact_or_404(db, contact_id)
+    await contact_service.delete_contact(db, contact)
+
+
+# ------------------------------------------------- resolve & message (one) ---
+
+
+@router.post("/{contact_id}/resolve", response_model=ResolveResult)
+async def resolve_one(
+    contact_id: int,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> ResolveResult:
+    contact = await _get_contact_or_404(db, contact_id)
+    try:
+        updated = await contact_service.resolve_contact(db, contact)
+    except contact_service.NoResolverAccount:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No logged-in account available to resolve contacts",
+        )
+    except engine_client.EngineUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    return ResolveResult(
+        id=updated.id,
+        resolution_status=updated.resolution_status,
+        telegram_user_id=updated.telegram_user_id,
+    )
+
+
+@router.post("/{contact_id}/message", response_model=ContactOut)
+async def message_contact(
+    contact_id: int,
+    payload: MessageRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ContactOut:
+    contact = await _get_contact_or_404(db, contact_id)
+    _ensure_can_edit(user, contact)
+
+    # Consent guardrail: only consented, non-opted-out contacts may be messaged.
+    if not contact.consent or contact.opted_out:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Contact has not consented or has opted out",
+        )
+
+    account = await account_service.get_by_id(db, payload.account_id)
+    if account is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    if not account.session_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Chosen account is not logged in"
+        )
+
+    try:
+        updated = await contact_service.message_contact(db, contact, account, payload.text)
+    except engine_client.EngineUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    await audit.record_event(
+        db,
+        type="contact.message",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"contact:{contact.id}",
+        meta={"account_id": account.id},
+    )
+    return updated

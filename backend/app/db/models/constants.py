@@ -22,3 +22,27 @@ class ActorType(str, enum.Enum):
     user = "user"
     account = "account"
     system = "system"
+
+
+class LeadType(str, enum.Enum):
+    phone = "phone"
+    username = "username"
+
+
+class ResolutionStatus(str, enum.Enum):
+    pending = "pending"
+    resolved = "resolved"
+    no_telegram = "no_telegram"
+    failed = "failed"
+
+
+class ContactStage(str, enum.Enum):
+    new = "new"
+    contacted = "contacted"
+    replied = "replied"
+    joined = "joined"
+    customer = "customer"
+    opted_out = "opted_out"
+
+
+CONTACT_STAGES = [s.value for s in ContactStage]

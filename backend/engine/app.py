@@ -21,6 +21,8 @@ from engine.schemas import (
     PasswordSubmit,
     PhoneSendCode,
     PhoneSignIn,
+    ResolvePhone,
+    ResolveUsername,
     SendRequest,
     SessionImport,
 )
@@ -217,6 +219,39 @@ async def warmup_send(account_id: int, body: SendRequest) -> dict:
     try:
         return await _manager().send_dm(
             account_id, body.api_id, body.api_hash, _proxy(body), body.target, body.text
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+# --------------------------------------------------- messaging & resolve ------
+
+
+@app.post("/clients/{account_id}/message")
+async def send_message(account_id: int, body: SendRequest) -> dict:
+    try:
+        return await _manager().send_dm(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.target, body.text
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/resolve/username")
+async def resolve_username(account_id: int, body: ResolveUsername) -> dict:
+    try:
+        return await _manager().resolve_username(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.username
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/resolve/phone")
+async def resolve_phone(account_id: int, body: ResolvePhone) -> dict:
+    try:
+        return await _manager().resolve_phone(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.phone
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

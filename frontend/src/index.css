@@ -627,6 +627,80 @@ select:focus {
   }
 }
 
+/* ---------- Contacts ---------- */
+.contacts-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.contacts-toolbar input {
+  flex: 1 1 240px;
+}
+.contacts-toolbar select {
+  width: auto;
+}
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 0.85rem;
+}
+.bulk-bar select {
+  width: auto;
+}
+
+/* ---------- Pipeline / Kanban ---------- */
+.kanban {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(200px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+.kanban-col {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 200px;
+}
+.kanban-col-head {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 10px;
+  text-transform: capitalize;
+}
+.kanban-cards {
+  display: grid;
+  gap: 8px;
+}
+.kanban-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+}
+.kanban-card-title {
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+.kanban-card-meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin: 2px 0 8px;
+}
+.kanban-move {
+  font-size: 0.78rem;
+  padding: 5px 8px;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

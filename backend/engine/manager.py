@@ -15,6 +15,7 @@ from telethon.sessions import SQLiteSession, StringSession
 
 from engine import actions as action_ops
 from engine import health as health_ops
+from engine import resolve as resolve_ops
 from engine.proxy import to_telethon_proxy
 
 log = logging.getLogger("engine.manager")
@@ -311,6 +312,22 @@ class SessionManager:
         async with self._lock(account_id):
             client = await self._authorized_client(account_id, api_id, api_hash, proxy)
             return await action_ops.send_dm(client, target, text)
+
+    # ------------------------------------------------------------- resolve ---
+
+    async def resolve_username(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None, username: str
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await resolve_ops.resolve_username(client, username)
+
+    async def resolve_phone(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None, phone: str
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await resolve_ops.resolve_phone(client, phone)
 
     # ------------------------------------------------------ session import ---
 

@@ -297,6 +297,131 @@ export interface CreateRunInput {
   max_delay_seconds?: number
 }
 
+// ---- Contacts (Phase 5) ----
+
+export type ContactStage =
+  | 'new'
+  | 'contacted'
+  | 'replied'
+  | 'joined'
+  | 'customer'
+  | 'opted_out'
+
+export const CONTACT_STAGES: ContactStage[] = [
+  'new',
+  'contacted',
+  'replied',
+  'joined',
+  'customer',
+  'opted_out',
+]
+
+export interface Contact {
+  id: number
+  name: string | null
+  display_label: string
+  lead_type: 'phone' | 'username'
+  phone: string | null
+  username: string | null
+  telegram_user_id: number | null
+  resolution_status: string
+  source: string | null
+  stage: ContactStage
+  consent: boolean
+  opted_out: boolean
+  assigned_account_id: number | null
+  assigned_agent_id: number | null
+  utm: Record<string, unknown>
+  tags: string[]
+  created_at: string
+  last_contacted_at: string | null
+}
+
+export interface ContactImportResult {
+  imported: number
+  skipped_duplicates: number
+  rejected_no_consent: number
+  invalid: number
+  total: number
+}
+
+export interface CreateContactInput {
+  name?: string | null
+  phone?: string | null
+  username?: string | null
+  source?: string | null
+  consent: boolean
+  tags?: string[]
+}
+
+async function multipartUpload<T>(path: string, file: File): Promise<T> {
+  const { accessToken } = useAuth.getState()
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const b = await res.json()
+      if (b?.detail) detail = typeof b.detail === 'string' ? b.detail : JSON.stringify(b.detail)
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return (await res.json()) as T
+}
+
+export const contactsApi = {
+  list: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString()
+    return apiFetch<Contact[]>(`/contacts${qs ? `?${qs}` : ''}`)
+  },
+  create: (data: CreateContactInput) =>
+    apiFetch<Contact>('/contacts', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<Contact>) =>
+    apiFetch<Contact>(`/contacts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: (id: number) => apiFetch<void>(`/contacts/${id}`, { method: 'DELETE' }),
+  importFile: (file: File) => multipartUpload<ContactImportResult>('/contacts/import', file),
+  resolveOne: (id: number) =>
+    apiFetch<{ id: number; resolution_status: string; telegram_user_id: number | null }>(
+      `/contacts/${id}/resolve`,
+      { method: 'POST' },
+    ),
+  message: (id: number, account_id: number, text: string) =>
+    apiFetch<Contact>(`/contacts/${id}/message`, {
+      method: 'POST',
+      body: JSON.stringify({ account_id, text }),
+    }),
+  bulkStage: (contact_ids: number[], stage: ContactStage) =>
+    apiFetch<number>('/contacts/bulk/stage', {
+      method: 'POST',
+      body: JSON.stringify({ contact_ids, stage }),
+    }),
+  bulkDelete: (contact_ids: number[]) =>
+    apiFetch<number>('/contacts/bulk/delete', {
+      method: 'POST',
+      body: JSON.stringify({ contact_ids }),
+    }),
+  downloadTemplate: async () => {
+    const { accessToken } = useAuth.getState()
+    const res = await fetch('/api/contacts/import-template', {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'contacts_template.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+}
+
 export const warmupApi = {
   listRuns: () => apiFetch<WarmupRun[]>('/warmup/runs'),
   createRun: (data: CreateRunInput) =>

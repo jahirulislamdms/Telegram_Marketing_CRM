@@ -180,3 +180,31 @@ async def warmup_send(
     body["target"] = target
     body["text"] = text
     return await _request("POST", f"/clients/{account.id}/warmup/send", json=body)
+
+
+# ---- Messaging & resolution (Phase 5) ----
+
+
+async def send_message(
+    account: Account, proxy: Proxy | None, target: str, text: str
+) -> dict:
+    body = credentials_payload(account, proxy)
+    body["target"] = target
+    body["text"] = text
+    return await _request("POST", f"/clients/{account.id}/message", json=body)
+
+
+async def resolve_username(
+    account: Account, proxy: Proxy | None, username: str
+) -> dict:
+    body = credentials_payload(account, proxy)
+    body["username"] = username
+    return await _request(
+        "POST", f"/clients/{account.id}/resolve/username", json=body
+    )
+
+
+async def resolve_phone(account: Account, proxy: Proxy | None, phone: str) -> dict:
+    body = credentials_payload(account, proxy)
+    body["phone"] = phone
+    return await _request("POST", f"/clients/{account.id}/resolve/phone", json=body)

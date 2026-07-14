@@ -2,8 +2,10 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Accounts from './pages/Accounts'
+import Contacts from './pages/Contacts'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
+import Pipeline from './pages/Pipeline'
 import Staff from './pages/Staff'
 import Warmup from './pages/Warmup'
 
@@ -36,6 +38,8 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/contacts" element={<Contacts />} />
+        <Route path="/pipeline" element={<Pipeline />} />
         <Route
           path="/staff"
           element={

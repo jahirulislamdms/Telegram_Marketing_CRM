@@ -45,6 +45,14 @@ class SendRequest(Credentials):
     text: str
 
 
+class ResolveUsername(Credentials):
+    username: str
+
+
+class ResolvePhone(Credentials):
+    phone: str
+
+
 class TelegramUser(BaseModel):
     id: int
     username: str | None = None

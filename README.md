@@ -86,9 +86,10 @@ npm run dev
 ## Build progress
 
 Progress is tracked in the spec's **§13 Build Progress Tracker** and **§14 Activity Log**.
-Current status: **Phase 4 — Warmup** complete (staged ramp, group joins, fleet↔fleet
-and fleet↔partner chit-chat, per-account stage progress, scheduler). Phases 0–3
-(foundation, auth/RBAC, account manager & login, account health) done.
+Current status: **Phase 5 — Contacts & CRM pipeline** complete (phone/username leads,
+CSV & Excel import with dedupe, consent tracking, Telegram resolution, direct
+messaging, Kanban pipeline). Phases 0–4 done (foundation, auth/RBAC, account manager
+& login, account health, warmup).
 
 First run creates an admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
 in `.env` — change these before production. Set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`
