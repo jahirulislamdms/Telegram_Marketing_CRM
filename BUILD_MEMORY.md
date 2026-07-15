@@ -2,8 +2,8 @@
 
 Self-contained memory so any AI/session can continue identically. Pairs with
 [`CLAUDE.md`](./CLAUDE.md) (process) and the spec's §13/§14 (authoritative progress).
-Last updated after **Phase 10**. Tests: **121 passing**. Commits `bb6d683` (P0+1) …
-Phase 10, all pushed to `origin/main`. Migrations `0001`…`0009`.
+Last updated after **Phase 11**. Tests: **131 passing**. Commits `bb6d683` (P0+1) …
+Phase 11, all pushed to `origin/main`. Migrations `0001`…`0010`.
 
 ## Tech stack
 
@@ -81,6 +81,18 @@ frontend/src/       api/client.ts, store/auth.ts, lib/{theme,useInboxSocket}, co
   (Redis→DB→WS `bot_message`). `/api/bots/*`. Reuses `/ws/inbox` with a `bot_message` event.
   Bots page (add/list/start/stop, bot inbox + reply, post, broadcast, deep-link).
 
+- **P11 Dashboard, analytics + referral** — `referrals` (0010). `services/analytics.py`:
+  `dashboard_snapshot` (account status counts, sends-vs-caps, sender+campaign queue depth,
+  proxy-pool health, out-message throughput 24h/1h [**Python-side time filtering** for
+  SQLite/PG portability], running-campaign progress, recent quarantine/flood events) + marketing
+  `funnel`/`per_source_conversion`/`per_account_health`/`campaign_summary`/`utm_attribution`.
+  `services/referrals.py` (get-or-create per subscriber, `record_referral` by `ref_<code>` payload,
+  reward, leaderboard). `/api/analytics/*` (Admin/Manager): dashboard, `dashboard/broadcast`
+  (publishes a `dashboard` WS event via `realtime.publish`), overview, referral CRUD. Celery
+  `analytics.dashboard_tick` (beat every 15s). Frontend: **Dashboard** rebuilt as live system
+  monitor (WS `dashboard` push → **Live**, 15s poll fallback; agents get a simple home) + new
+  **Analytics** page (funnel, per-source, campaign A/B, UTM, referral leaderboard + tools).
+
 ## Engine internal API (`:9100`, private) — routes so far
 
 `GET /health`, `GET|POST /clients/{id}/status|start|logout`;
@@ -109,10 +121,6 @@ backend `engine_client` wraps each; on network/5xx it raises `EngineUnavailable`
 
 ## Remaining phases (spec §9)
 
-- **P11 Dashboard, analytics + referral** — system-monitoring Dashboard (live account health,
-  throughput, queue depth, quarantines, proxy-pool health, running campaigns via WebSocket),
-  event tracking, marketing analytics (funnel, per-source conversion, per-account, campaign/A-B),
-  UTM attribution, referral links/rewards.
 - **P12 Hardening & deploy** — HTTPS via Caddy, `pg_dump` backups, rate-limited API, secrets,
   prod compose, Ubuntu + Windows install docs.
 

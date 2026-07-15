@@ -468,9 +468,16 @@ export interface Thread {
 }
 
 export interface InboxEvent {
-  type: 'message' | 'conversation' | 'connected' | 'bot_message' | 'bot_conversation'
+  type:
+    | 'message'
+    | 'conversation'
+    | 'connected'
+    | 'bot_message'
+    | 'bot_conversation'
+    | 'dashboard'
   conversation?: Conversation | Record<string, unknown>
   message?: InboxMessage | Record<string, unknown>
+  snapshot?: DashboardSnapshot
 }
 
 export const inboxApi = {
@@ -849,4 +856,135 @@ export const warmupApi = {
     apiFetch<WarmupRunDetail>(`/warmup/runs/${id}/stop`, { method: 'POST' }),
   tick: (id: number) =>
     apiFetch<TickResult>(`/warmup/runs/${id}/tick`, { method: 'POST' }),
+}
+
+// ---- Dashboard, analytics + referral (Phase 11) ----
+
+export interface RunningCampaign {
+  id: number
+  name: string
+  action: string
+  total: number
+  done: number
+  sent: number
+  joined: number
+  failed: number
+}
+
+export interface DashboardEvent {
+  id: number
+  type: string
+  entity_ref: string | null
+  meta: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface DashboardSnapshot {
+  generated_at: string
+  accounts: Record<string, number>
+  caps: { actions_today: number; daily_cap: number; pct: number }
+  queue: { send_targets: number; campaign_targets: number; total: number }
+  proxies: Record<string, number>
+  throughput: { sends_today: number; sends_last_hour: number }
+  running_campaigns: RunningCampaign[]
+  recent_events: DashboardEvent[]
+}
+
+export interface FunnelData {
+  total: number
+  stages: Record<string, number>
+  reached: Record<string, number>
+  conversion_pct: number
+}
+
+export interface SourceRow {
+  source: string
+  total: number
+  conversion_pct: number
+  [key: string]: number | string
+}
+
+export interface AccountHealthRow {
+  id: number
+  label: string
+  status: string
+  spam_state: string
+  warmup_stage: number
+  actions_today: number
+  daily_cap: number
+  logged_in: boolean
+  last_action_at: string | null
+}
+
+export interface CampaignSummaryRow {
+  id: number
+  name: string
+  action: string
+  status: string
+  ab_test: boolean
+  targets: number
+  sent: number
+  joined: number
+  replied: number
+  failed: number
+  queued: number
+}
+
+export interface UtmRow {
+  utm_source: string
+  subscribers: number
+  subscribed: number
+  converted: number
+}
+
+export interface ReferralRow {
+  referral_id: number
+  subscriber_id: number
+  label: string
+  bot_name: string | null
+  invite_code: string
+  invited_count: number
+  rewarded: boolean
+}
+
+export interface AnalyticsOverview {
+  funnel: FunnelData
+  per_source: SourceRow[]
+  per_account: AccountHealthRow[]
+  campaigns: CampaignSummaryRow[]
+  utm: UtmRow[]
+  referrals: ReferralRow[]
+}
+
+export interface ReferralDetail {
+  id: number
+  referrer_subscriber_id: number
+  invite_code: string
+  invited_count: number
+  rewarded: boolean
+  created_at: string
+  deep_link: string
+}
+
+export const analyticsApi = {
+  dashboard: () => apiFetch<DashboardSnapshot>('/analytics/dashboard'),
+  broadcastDashboard: () =>
+    apiFetch<DashboardSnapshot>('/analytics/dashboard/broadcast', { method: 'POST' }),
+  overview: () => apiFetch<AnalyticsOverview>('/analytics'),
+  referrals: () => apiFetch<ReferralRow[]>('/analytics/referrals'),
+  createReferral: (subscriber_id: number) =>
+    apiFetch<ReferralDetail>('/analytics/referrals', {
+      method: 'POST',
+      body: JSON.stringify({ subscriber_id }),
+    }),
+  recordReferral: (invite_code: string) =>
+    apiFetch<{ id: number; invite_code: string; invited_count: number; rewarded: boolean }>(
+      '/analytics/referrals/record',
+      { method: 'POST', body: JSON.stringify({ invite_code }) },
+    ),
+  reward: (id: number, rewarded = true) =>
+    apiFetch<{ id: number; invited_count: number; rewarded: boolean }>(
+      `/analytics/referrals/${id}/reward`,
+      { method: 'POST', body: JSON.stringify({ rewarded }) },
+    ),
 }

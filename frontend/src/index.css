@@ -894,6 +894,180 @@ select:focus {
   color: var(--ok);
 }
 
+/* ---------- Dashboard & analytics (Phase 11) ---------- */
+.dash-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dash-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.live-dot {
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.3px;
+}
+.live-dot--on {
+  color: var(--ok);
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 14px;
+  margin: 8px 0 18px;
+}
+.metric-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.metric-card--accent {
+  background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #000));
+  border-color: transparent;
+  color: var(--accent-contrast);
+}
+.metric-card--accent .metric-label {
+  color: rgba(255, 255, 255, 0.85);
+}
+.metric-label {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.metric-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot--ok {
+  background: var(--ok);
+}
+.dot--wait {
+  background: var(--wait);
+}
+.dot--err {
+  background: var(--err);
+}
+.dot--muted {
+  background: var(--muted);
+}
+
+.progress {
+  height: 8px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.run-progress {
+  margin-bottom: 12px;
+}
+.run-progress-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+}
+.run-progress-name {
+  font-weight: 600;
+}
+
+.event-feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.event-feed li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+.event-ref {
+  color: var(--muted);
+  flex: 1;
+}
+
+.funnel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.funnel-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+}
+.funnel-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.funnel-bar {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  height: 26px;
+  overflow: hidden;
+}
+.funnel-fill {
+  height: 100%;
+  min-width: 26px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--ok)));
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 8px;
+  transition: width 0.4s ease;
+}
+.funnel-count {
+  color: var(--accent-contrast);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.funnel-pct {
+  font-size: 0.82rem;
+  text-align: right;
+  color: var(--muted);
+}
+
+.referral-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.referral-tools .form-row {
+  margin: 0;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

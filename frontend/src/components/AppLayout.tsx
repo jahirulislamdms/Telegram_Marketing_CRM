@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { to: '/sender', label: 'Sender', icon: '➤', end: false, roles: ['admin', 'manager'] },
   { to: '/campaigns', label: 'Campaigns', icon: '◆', end: false, roles: ['admin', 'manager'] },
   { to: '/bots', label: 'Bots', icon: '⌬', end: false, roles: ['admin', 'manager'] },
+  { to: '/analytics', label: 'Analytics', icon: '◷', end: false, roles: ['admin', 'manager'] },
   { to: '/staff', label: 'Staff', icon: '☰', end: false, roles: ['admin'] },
 ]
 

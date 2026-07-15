@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Accounts from './pages/Accounts'
+import Analytics from './pages/Analytics'
 import Bots from './pages/Bots'
 import Campaigns from './pages/Campaigns'
 import Contacts from './pages/Contacts'
@@ -75,6 +76,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin', 'manager']}>
               <Bots />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <Analytics />
             </ProtectedRoute>
           }
         />

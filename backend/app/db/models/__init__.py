@@ -13,6 +13,7 @@ from app.db.models.destination import Destination, GroupMembership
 from app.db.models.event import Event
 from app.db.models.inbox import Conversation, Message
 from app.db.models.proxy import Proxy
+from app.db.models.referral import Referral
 from app.db.models.sender import SendJob, SendTarget
 from app.db.models.user import User
 from app.db.models.warmup import WarmupParticipant, WarmupPartner, WarmupRun
@@ -37,6 +38,7 @@ __all__ = [
     "BotSubscriber",
     "BotConversation",
     "BotMessage",
+    "Referral",
     "WarmupRun",
     "WarmupParticipant",
     "WarmupPartner",

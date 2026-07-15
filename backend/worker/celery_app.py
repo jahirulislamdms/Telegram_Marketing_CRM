@@ -38,6 +38,10 @@ celery_app.conf.beat_schedule = {
         "task": "campaigns.tick",
         "schedule": 60.0,  # every minute
     },
+    "dashboard-tick": {
+        "task": "analytics.dashboard_tick",
+        "schedule": 15.0,  # push a live Dashboard snapshot every 15 seconds
+    },
 }
 
 celery_app.autodiscover_tasks(["worker.tasks"])
