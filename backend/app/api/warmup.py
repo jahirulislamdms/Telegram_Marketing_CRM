@@ -223,9 +223,13 @@ async def tick(
         if action["type"] == "join":
             await engine_client.warmup_join(account, proxy, action["link"])
         else:
-            await engine_client.warmup_send(
+            result = await engine_client.warmup_send(
                 account, proxy, action["target"], action["text"]
             )
+            if not result.get("sent", True):
+                raise engine_client.EngineUnavailable(
+                    f"warmup send failed: {result.get('error')}"
+                )
 
     summary = await warmup_service.run_tick(
         db, run, datetime.now(timezone.utc), _execute

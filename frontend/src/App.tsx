@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard'
 import Inbox from './pages/Inbox'
 import Login from './pages/Login'
 import Pipeline from './pages/Pipeline'
+import Sender from './pages/Sender'
 import Staff from './pages/Staff'
 import Warmup from './pages/Warmup'
 
@@ -42,6 +43,14 @@ export default function App() {
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/inbox" element={<Inbox />} />
+        <Route
+          path="/sender"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <Sender />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/staff"
           element={

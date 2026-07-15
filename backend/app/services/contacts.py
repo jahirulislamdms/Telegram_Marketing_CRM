@@ -310,7 +310,9 @@ async def message_contact(
     target = message_target(contact)
     if target is None:
         raise ValueError("contact has no reachable identifier")
-    await engine_client.send_message(account, proxy, target, text)
+    result = await engine_client.send_message(account, proxy, target, text)
+    if not result.get("sent", False):
+        raise engine_client.EngineUnavailable(f"send failed: {result.get('error')}")
     contact.last_contacted_at = datetime.now(timezone.utc)
     if contact.stage == "new":
         contact.stage = "contacted"

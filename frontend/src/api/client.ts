@@ -503,6 +503,74 @@ export const inboxApi = {
     }),
 }
 
+// ---- Sender (Phase 7) ----
+
+export interface SendJob {
+  id: number
+  name: string
+  template: string
+  include_link: boolean
+  link_url: string | null
+  suppress_link_first: boolean
+  active_start: string
+  active_end: string
+  status: string
+  created_at: string
+  started_at: string | null
+}
+
+export interface SendTarget {
+  id: number
+  contact_id: number
+  contact_label: string
+  account_id: number | null
+  status: string
+  error: string | null
+  rendered_body: string | null
+}
+
+export interface SendJobDetail extends SendJob {
+  stats: Record<string, number>
+  targets: SendTarget[]
+}
+
+export interface SendTickResult {
+  sent: number
+  skipped: number
+  failed: number
+  paused: boolean
+  actions: Array<Record<string, unknown>>
+  warning: string | null
+}
+
+export interface CreateSendJobInput {
+  name: string
+  template: string
+  include_link: boolean
+  link_url?: string | null
+  suppress_link_first: boolean
+}
+
+export const senderApi = {
+  listJobs: () => apiFetch<SendJob[]>('/sender/jobs'),
+  createJob: (data: CreateSendJobInput) =>
+    apiFetch<SendJob>('/sender/jobs', { method: 'POST', body: JSON.stringify(data) }),
+  getJob: (id: number) => apiFetch<SendJobDetail>(`/sender/jobs/${id}`),
+  addTargets: (id: number, body: { contact_ids?: number[]; source?: string }) =>
+    apiFetch<SendJobDetail>(`/sender/jobs/${id}/targets`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  start: (id: number) =>
+    apiFetch<SendJobDetail>(`/sender/jobs/${id}/start`, { method: 'POST' }),
+  pause: (id: number) =>
+    apiFetch<SendJobDetail>(`/sender/jobs/${id}/pause`, { method: 'POST' }),
+  stop: (id: number) =>
+    apiFetch<SendJobDetail>(`/sender/jobs/${id}/stop`, { method: 'POST' }),
+  tick: (id: number) =>
+    apiFetch<SendTickResult>(`/sender/jobs/${id}/tick`, { method: 'POST' }),
+}
+
 export const warmupApi = {
   listRuns: () => apiFetch<WarmupRun[]>('/warmup/runs'),
   createRun: (data: CreateRunInput) =>

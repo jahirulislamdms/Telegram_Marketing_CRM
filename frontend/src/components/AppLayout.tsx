@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { to: '/contacts', label: 'Contacts', icon: '☺', end: false },
   { to: '/pipeline', label: 'Pipeline', icon: '▦', end: false },
   { to: '/inbox', label: 'Inbox', icon: '✉', end: false },
+  { to: '/sender', label: 'Sender', icon: '➤', end: false, roles: ['admin', 'manager'] },
   { to: '/staff', label: 'Staff', icon: '☰', end: false, roles: ['admin'] },
 ]
 

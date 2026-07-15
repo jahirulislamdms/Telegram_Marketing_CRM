@@ -30,6 +30,10 @@ celery_app.conf.beat_schedule = {
         "task": "warmup.tick",
         "schedule": 300.0,  # every 5 minutes
     },
+    "sender-tick": {
+        "task": "sender.tick",
+        "schedule": 60.0,  # every minute
+    },
 }
 
 celery_app.autodiscover_tasks(["worker.tasks"])

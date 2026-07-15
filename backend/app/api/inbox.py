@@ -183,13 +183,20 @@ async def send_reply(
         if payload.type == "image":
             if not payload.media_url:
                 raise HTTPException(status_code=400, detail="media_url required for image")
-            await engine_client.send_file(
+            result = await engine_client.send_file(
                 account, proxy, target, payload.media_url, payload.body
             )
         else:
-            await engine_client.send_message(account, proxy, target, payload.body or "")
+            result = await engine_client.send_message(
+                account, proxy, target, payload.body or ""
+            )
     except engine_client.EngineUnavailable as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    if not result.get("sent", False):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"send failed: {result.get('error')}",
+        )
 
     message = await inbox_service.record_outgoing(
         db,

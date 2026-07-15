@@ -2,7 +2,12 @@
 
 import logging
 
-from telethon.errors import UserAlreadyParticipantError
+from telethon.errors import (
+    FloodWaitError,
+    PeerFloodError,
+    UserAlreadyParticipantError,
+    UserBannedInChannelError,
+)
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.functions.messages import ImportChatInviteRequest
 
@@ -45,11 +50,25 @@ async def join_chat(client, link: str) -> dict:
 
 
 async def send_dm(client, target: str, text: str) -> dict:
-    await client.send_message(target, text)
-    return {"sent": True}
+    """Send a text message. Flood/peer-flood/ban warnings are returned (not raised)
+    so the caller can auto-quarantine the account and pause sending."""
+    try:
+        await client.send_message(target, text)
+        return {"sent": True}
+    except FloodWaitError as exc:
+        return {"sent": False, "error": "flood", "seconds": exc.seconds}
+    except PeerFloodError:
+        return {"sent": False, "error": "peerflood"}
+    except UserBannedInChannelError:
+        return {"sent": False, "error": "banned"}
 
 
 async def send_file(client, target: str, file: str, caption: str | None = None) -> dict:
     # Telethon accepts a URL, local path, or bytes for ``file``.
-    await client.send_file(target, file, caption=caption)
-    return {"sent": True}
+    try:
+        await client.send_file(target, file, caption=caption)
+        return {"sent": True}
+    except FloodWaitError as exc:
+        return {"sent": False, "error": "flood", "seconds": exc.seconds}
+    except PeerFloodError:
+        return {"sent": False, "error": "peerflood"}

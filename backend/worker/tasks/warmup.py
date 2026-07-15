@@ -21,7 +21,13 @@ async def _execute(db, participant, account, action) -> None:
     if action["type"] == "join":
         await engine_client.warmup_join(account, proxy, action["link"])
     else:
-        await engine_client.warmup_send(account, proxy, action["target"], action["text"])
+        result = await engine_client.warmup_send(
+            account, proxy, action["target"], action["text"]
+        )
+        if not result.get("sent", True):
+            raise engine_client.EngineUnavailable(
+                f"warmup send failed: {result.get('error')}"
+            )
 
 
 async def _tick_all() -> dict:

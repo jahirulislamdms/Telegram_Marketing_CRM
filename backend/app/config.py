@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # ---- Warmup (Phase 4; overridable from Settings later) ----
     warmup_full_daily_cap: int = 30
 
+    # ---- Sender / anti-ban (Phase 7; overridable from Settings later) ----
+    send_min_delay_seconds: int = 40
+    send_max_delay_seconds: int = 180
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

@@ -58,12 +58,23 @@ async def get_or_create_conversation(
     peer_name: str | None,
     contact_id: int | None = None,
 ) -> Conversation:
-    res = await db.execute(
-        select(Conversation).where(
+    if peer_id is not None:
+        lookup = select(Conversation).where(
             Conversation.account_id == account_id, Conversation.peer_id == peer_id
         )
-    )
-    conversation = res.scalar_one_or_none()
+    elif contact_id is not None:
+        lookup = select(Conversation).where(
+            Conversation.account_id == account_id,
+            Conversation.contact_id == contact_id,
+        )
+    else:
+        lookup = select(Conversation).where(
+            Conversation.account_id == account_id,
+            Conversation.peer_id.is_(None),
+            Conversation.contact_id.is_(None),
+        )
+    res = await db.execute(lookup)
+    conversation = res.scalars().first()
     if conversation is None:
         conversation = Conversation(
             account_id=account_id,
