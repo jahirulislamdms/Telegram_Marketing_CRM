@@ -24,9 +24,9 @@ This is the source of truth for progress. Do it as part of the same task, every 
 
 ## Current status
 
-Phases **0–9 are DONE**. **Phase 10 (Multi-bot console) is next.** Always confirm
-current status from spec **§13/§14** — they are authoritative. `BUILD_MEMORY.md`
-has the condensed per-phase record and the remaining-phase plan.
+Phases **0–10 are DONE**. **Phase 11 (Dashboard, analytics + referral) is next.**
+Always confirm current status from spec **§13/§14** — they are authoritative.
+`BUILD_MEMORY.md` has the condensed per-phase record and the remaining-phase plan.
 
 ## Environment (this machine)
 

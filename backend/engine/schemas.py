@@ -68,6 +68,33 @@ class AddMember(Credentials):
     target: str
 
 
+# ---- Bots (Phase 10) ----
+
+
+class BotStart(BaseModel):
+    bot_id: int
+    token: str
+
+
+class BotInfo(BaseModel):
+    token: str
+
+
+class BotSend(BaseModel):
+    bot_id: int
+    token: str
+    chat_id: int | str
+    text: str
+
+
+class BotPost(BaseModel):
+    bot_id: int
+    token: str
+    chat_id: int | str
+    text: str = ""
+    image_url: str | None = None
+
+
 class TelegramUser(BaseModel):
     id: int
     username: str | None = None

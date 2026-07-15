@@ -86,11 +86,10 @@ npm run dev
 ## Build progress
 
 Progress is tracked in the spec's **§13 Build Progress Tracker** and **§14 Activity Log**.
-Current status: **Phase 9 — Campaigns + drip + A/B** complete (segment builder with
-exclude-already-in-group, spintax templates with A/B variants, scheduled multi-step
-drip, message/add actions, A/B measurement). Phases 0–8 done (foundation, auth/RBAC,
-accounts & login, account health, warmup, contacts & pipeline, live inbox, sender,
-groups & add-members).
+Current status: **Phase 10 — Multi-bot console** complete (host aiogram bots by token,
+two-way bot inbox, channel posts with image, broadcasts, subscribers, UTM deep-links).
+Phases 0–9 done (foundation, auth/RBAC, accounts & login, account health, warmup,
+contacts & pipeline, live inbox, sender, groups & add-members, campaigns + A/B).
 
 First run creates an admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
 in `.env` — change these before production. Set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`

@@ -468,9 +468,9 @@ export interface Thread {
 }
 
 export interface InboxEvent {
-  type: 'message' | 'conversation' | 'connected'
-  conversation?: Conversation
-  message?: InboxMessage
+  type: 'message' | 'conversation' | 'connected' | 'bot_message' | 'bot_conversation'
+  conversation?: Conversation | Record<string, unknown>
+  message?: InboxMessage | Record<string, unknown>
 }
 
 export const inboxApi = {
@@ -500,6 +500,90 @@ export const inboxApi = {
     apiFetch<Conversation>('/inbox/simulate-incoming', {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+}
+
+// ---- Bots (Phase 10) ----
+
+export interface Bot {
+  id: number
+  name: string | null
+  username: string | null
+  mode: string
+  status: string
+  created_at: string
+}
+
+export interface BotDetail extends Bot {
+  counts: Record<string, number>
+  deep_link: string
+}
+
+export interface BotSubscriber {
+  id: number
+  telegram_user_id: number
+  name: string | null
+  utm_source: string | null
+  is_active: boolean
+  is_subscribed: boolean
+}
+
+export interface BotConversation {
+  id: number
+  bot_id: number
+  subscriber_id: number
+  label: string
+  last_message_at: string | null
+  last_message_preview: string | null
+  unread_count: number
+  status: string
+}
+
+export interface BotMessage {
+  id: number
+  bot_conversation_id: number
+  direction: 'in' | 'out'
+  sender: string
+  type: string
+  body: string | null
+  created_at: string | null
+}
+
+export interface BotThread {
+  conversation: BotConversation
+  messages: BotMessage[]
+}
+
+export const botsApi = {
+  list: () => apiFetch<Bot[]>('/bots'),
+  add: (token: string) =>
+    apiFetch<Bot>('/bots', { method: 'POST', body: JSON.stringify({ token }) }),
+  get: (id: number) => apiFetch<BotDetail>(`/bots/${id}`),
+  remove: (id: number) => apiFetch<void>(`/bots/${id}`, { method: 'DELETE' }),
+  start: (id: number) => apiFetch<Bot>(`/bots/${id}/start`, { method: 'POST' }),
+  stop: (id: number) => apiFetch<Bot>(`/bots/${id}/stop`, { method: 'POST' }),
+  subscribers: (id: number) => apiFetch<BotSubscriber[]>(`/bots/${id}/subscribers`),
+  conversations: (id: number) => apiFetch<BotConversation[]>(`/bots/${id}/conversations`),
+  thread: (id: number, cid: number) =>
+    apiFetch<BotThread>(`/bots/${id}/conversations/${cid}`),
+  markRead: (id: number, cid: number) =>
+    apiFetch<BotConversation>(`/bots/${id}/conversations/${cid}/read`, { method: 'POST' }),
+  reply: (id: number, cid: number, text: string) =>
+    apiFetch<BotMessage>(`/bots/${id}/conversations/${cid}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  post: (id: number, body: { chat_id: string; text: string; image_url?: string | null }) =>
+    apiFetch<{ sent: boolean }>(`/bots/${id}/post`, { method: 'POST', body: JSON.stringify(body) }),
+  broadcast: (id: number, text: string) =>
+    apiFetch<{ sent: number; recipients: number }>(`/bots/${id}/broadcast`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  simulateIncoming: (id: number, body: { telegram_user_id: number; name?: string; text: string; utm_source?: string }) =>
+    apiFetch<BotConversation>(`/bots/${id}/simulate-incoming`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     }),
 }
 

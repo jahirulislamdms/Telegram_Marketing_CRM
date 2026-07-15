@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.accounts import router as accounts_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
+from app.api.bots import router as bots_router
 from app.api.campaigns import router as campaigns_router
 from app.api.contacts import router as contacts_router
 from app.api.destinations import router as destinations_router
@@ -21,6 +22,7 @@ from app.api.users import router as users_router
 from app.api.warmup import router as warmup_router
 from app.config import settings
 from app import realtime
+from app.services import bot_consumer
 from app.services import inbox_consumer
 
 logging.basicConfig(
@@ -40,7 +42,9 @@ async def lifespan(app: FastAPI):
     )
     await realtime.startup()
     await inbox_consumer.startup()
+    await bot_consumer.startup()
     yield
+    await bot_consumer.shutdown()
     await inbox_consumer.shutdown()
     await realtime.shutdown()
     log.info("Shutting down %s", settings.app_name)
@@ -73,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(sender_router, prefix="/api")
     app.include_router(destinations_router, prefix="/api")
     app.include_router(campaigns_router, prefix="/api")
+    app.include_router(bots_router, prefix="/api")
     app.add_api_websocket_route("/ws/inbox", inbox_ws)
     return app
 

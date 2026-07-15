@@ -7,6 +7,7 @@ import {
   type Conversation,
   type ConversationStatus,
   type InboxEvent,
+  type InboxMessage,
   type Thread,
 } from '../api/client'
 import { useInboxSocket } from '../lib/useInboxSocket'
@@ -63,8 +64,8 @@ export default function Inbox() {
   // Live updates.
   useInboxSocket((event: InboxEvent) => {
     if (event.type === 'message' && event.conversation && event.message) {
-      const conv = event.conversation
-      const msg = event.message
+      const conv = event.conversation as Conversation
+      const msg = event.message as InboxMessage
       setConversations((prev) => upsert(prev, conv))
       if (selectedRef.current === conv.id) {
         setThread((prev) => {
@@ -74,7 +75,7 @@ export default function Inbox() {
         })
       }
     } else if (event.type === 'conversation' && event.conversation) {
-      setConversations((prev) => upsert(prev, event.conversation!))
+      setConversations((prev) => upsert(prev, event.conversation as Conversation))
     }
   })
 

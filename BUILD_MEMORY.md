@@ -2,8 +2,8 @@
 
 Self-contained memory so any AI/session can continue identically. Pairs with
 [`CLAUDE.md`](./CLAUDE.md) (process) and the spec's §13/§14 (authoritative progress).
-Last updated after **Phase 9**. Tests: **113 passing**. Commits `bb6d683` (P0+1) …
-`2cf4503` (P9), all pushed to `origin/main`.
+Last updated after **Phase 10**. Tests: **121 passing**. Commits `bb6d683` (P0+1) …
+Phase 10, all pushed to `origin/main`. Migrations `0001`…`0009`.
 
 ## Tech stack
 
@@ -73,6 +73,14 @@ frontend/src/       api/client.ts, store/auth.ts, lib/{theme,useInboxSocket}, co
   membership, flood→pause), `ab_report`. `/api/templates` + `/api/campaigns/*` + Celery
   `campaigns.tick`. Campaigns page (A/B templates, builder, A/B results table).
 
+- **P10 Multi-bot console** — `bots`,`bot_subscribers`,`bot_conversations`,`bot_messages` (0009).
+  Engine hosts **aiogram v3** bots: `engine/bots_manager.py` (add-by-token start/stop polling,
+  `/start` captures subscriber+UTM, messages → Redis `bot:incoming`/`bot:start`; send/post/get_me);
+  engine `/bots/{start,stop,info,send,post}` (aiogram lazy-imported). `services/bots.py` (CRUD,
+  subscriber upsert, bot inbox reply, broadcast, post-to-channel, deep_link), `bot_consumer.py`
+  (Redis→DB→WS `bot_message`). `/api/bots/*`. Reuses `/ws/inbox` with a `bot_message` event.
+  Bots page (add/list/start/stop, bot inbox + reply, post, broadcast, deep-link).
+
 ## Engine internal API (`:9100`, private) — routes so far
 
 `GET /health`, `GET|POST /clients/{id}/status|start|logout`;
@@ -80,7 +88,8 @@ login: `/login/qr` (POST/GET), `/login/qr/password`, `/login/phone/send-code`,
 `/login/phone/sign-in`, `/login/session`;
 health: `/health/{spam-check,ban-check,unspam,unfreeze}`;
 warmup: `/warmup/{join,send}`; messaging: `/message`, `/send-file`;
-resolve: `/resolve/{username,phone}`; destinations: `/destination/{resolve,add}`.
+resolve: `/resolve/{username,phone}`; destinations: `/destination/{resolve,add}`;
+bots: `/bots/{start,stop,info,send,post}`.
 All accept a `Credentials` body `{api_id, api_hash, proxy?}` (+ action fields). The
 backend `engine_client` wraps each; on network/5xx it raises `EngineUnavailable`.
 
@@ -100,16 +109,6 @@ backend `engine_client` wraps each; on network/5xx it raises `EngineUnavailable`
 
 ## Remaining phases (spec §9)
 
-- **P10 Multi-bot console** — host **multiple aiogram bots** in the engine (add by BotFather
-  token, polling/webhook, start/stop/remove); per-bot started/active dashboard; **two-way bot
-  inbox** (users message the bot, staff reply — like the account inbox but for bot chats);
-  send message to a user or a selected group/channel; **post to channels with image+text**;
-  add bot to groups; **UTM opt-in deep-links** per source; subscriber capture; broadcast; AFK
-  auto-reply. Tables (spec §5): `bots`, `bot_subscribers`, `bot_conversations`, `bot_messages`,
-  `referrals`. **New dependency: `aiogram` v3** — add to `backend/pyproject.toml`; the engine
-  will host aiogram bots alongside Telethon userbots (separate manager). Reuse the inbox WS
-  pattern for the bot inbox. *Done when:* two bots run from pasted tokens, an incoming bot
-  message appears in the bot inbox and staff can reply, and a text+image post reaches a channel.
 - **P11 Dashboard, analytics + referral** — system-monitoring Dashboard (live account health,
   throughput, queue depth, quarantines, proxy-pool health, running campaigns via WebSocket),
   event tracking, marketing analytics (funnel, per-source conversion, per-account, campaign/A-B),

@@ -238,3 +238,32 @@ async def add_member(
     body["entity_id"] = entity_id
     body["target"] = target
     return await _request("POST", f"/clients/{account.id}/destination/add", json=body)
+
+
+# ---- Bots (Phase 10) ----
+
+
+async def bot_start(bot_id: int, token: str) -> dict:
+    return await _request("POST", "/bots/start", json={"bot_id": bot_id, "token": token})
+
+
+async def bot_stop(bot_id: int, token: str = "") -> dict:
+    return await _request("POST", "/bots/stop", json={"bot_id": bot_id, "token": token})
+
+
+async def bot_info(token: str) -> dict:
+    return await _request("POST", "/bots/info", json={"token": token})
+
+
+async def bot_send(bot_id: int, token: str, chat_id, text: str) -> dict:
+    return await _request(
+        "POST", "/bots/send",
+        json={"bot_id": bot_id, "token": token, "chat_id": chat_id, "text": text},
+    )
+
+
+async def bot_post(bot_id: int, token: str, chat_id, text: str, image_url: str | None) -> dict:
+    return await _request(
+        "POST", "/bots/post",
+        json={"bot_id": bot_id, "token": token, "chat_id": chat_id, "text": text, "image_url": image_url},
+    )

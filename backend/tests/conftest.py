@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 import app.realtime as _realtime
+import app.services.bot_consumer as _bot_consumer
 import app.services.inbox_consumer as _inbox_consumer
 from app.db.models import Base
 from app.db.models.constants import UserRole
@@ -34,6 +35,8 @@ _realtime.startup = _noop_async
 _realtime.shutdown = _noop_async
 _inbox_consumer.startup = _noop_async
 _inbox_consumer.shutdown = _noop_async
+_bot_consumer.startup = _noop_async
+_bot_consumer.shutdown = _noop_async
 
 DB_PATH = pathlib.Path(tempfile.gettempdir()) / "tgcrm_test.db"
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.as_posix()}"

@@ -14,9 +14,14 @@ import redis.asyncio as redis
 from fastapi import FastAPI, HTTPException
 
 from app.config import settings
+from engine.bots_manager import BotManager
 from engine.manager import EngineLoginError, SessionManager
 from engine.schemas import (
     AddMember,
+    BotInfo,
+    BotPost,
+    BotSend,
+    BotStart,
     Credentials,
     JoinRequest,
     PasswordSubmit,
@@ -60,6 +65,7 @@ async def lifespan(app: FastAPI):
     log.info("Telegram Engine Service starting")
     manager = SessionManager(settings.sessions_dir)
     app.state.manager = manager
+    app.state.bots = BotManager()
     hb = asyncio.create_task(_heartbeat(manager))
     try:
         yield
@@ -68,6 +74,7 @@ async def lifespan(app: FastAPI):
         with contextlib.suppress(asyncio.CancelledError):
             await hb
         await manager.shutdown()
+        await app.state.bots.shutdown()
         log.info("Telegram Engine Service stopped")
 
 
@@ -274,6 +281,52 @@ async def add_member(account_id: int, body: AddMember) -> dict:
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ------------------------------------------------------------------- bots -----
+
+
+def _bots() -> BotManager:
+    return app.state.bots
+
+
+@app.post("/bots/start")
+async def bot_start(body: BotStart) -> dict:
+    try:
+        return await _bots().start(body.bot_id, body.token)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"bot start failed: {exc}")
+
+
+@app.post("/bots/stop")
+async def bot_stop(body: BotStart) -> dict:
+    return await _bots().stop(body.bot_id)
+
+
+@app.post("/bots/info")
+async def bot_info(body: BotInfo) -> dict:
+    try:
+        return await _bots().info(body.token)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"invalid token: {exc}")
+
+
+@app.post("/bots/send")
+async def bot_send(body: BotSend) -> dict:
+    try:
+        return await _bots().send(body.bot_id, body.token, body.chat_id, body.text)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"send failed: {exc}")
+
+
+@app.post("/bots/post")
+async def bot_post(body: BotPost) -> dict:
+    try:
+        return await _bots().post(
+            body.bot_id, body.token, body.chat_id, body.text, body.image_url
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"post failed: {exc}")
 
 
 @app.post("/clients/{account_id}/resolve/username")
