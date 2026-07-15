@@ -34,6 +34,10 @@ celery_app.conf.beat_schedule = {
         "task": "sender.tick",
         "schedule": 60.0,  # every minute
     },
+    "campaigns-tick": {
+        "task": "campaigns.tick",
+        "schedule": 60.0,  # every minute
+    },
 }
 
 celery_app.autodiscover_tasks(["worker.tasks"])

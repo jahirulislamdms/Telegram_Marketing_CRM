@@ -503,6 +503,115 @@ export const inboxApi = {
     }),
 }
 
+// ---- Campaigns + templates (Phase 9) ----
+
+export interface Template {
+  id: number
+  name: string
+  body: string
+  include_link: boolean
+  link_url: string | null
+  variant_group: string
+  variant_label: string
+  created_at: string
+}
+
+export interface Campaign {
+  id: number
+  name: string
+  action: string
+  destination_id: number | null
+  segment: Record<string, unknown>
+  steps: Array<Record<string, unknown>>
+  ab_test: boolean
+  status: string
+  created_at: string
+  started_at: string | null
+}
+
+export interface CampaignTarget {
+  id: number
+  contact_id: number
+  contact_label: string
+  step: number
+  template_id: number | null
+  account_id: number | null
+  result: string
+  error: string | null
+}
+
+export interface ABRow {
+  template_id: number | null
+  label: string
+  name: string
+  queued: number
+  sent: number
+  joined: number
+  failed: number
+  skipped: number
+  replied: number
+}
+
+export interface CampaignDetail extends Campaign {
+  stats: Record<string, number>
+  ab_report: ABRow[]
+  targets: CampaignTarget[]
+}
+
+export interface CampaignTickResult {
+  sent: number
+  joined: number
+  failed: number
+  skipped: number
+  paused: boolean
+  actions: Array<Record<string, unknown>>
+  warning: string | null
+}
+
+export interface CreateTemplateInput {
+  name: string
+  body: string
+  include_link?: boolean
+  link_url?: string | null
+  variant_group: string
+  variant_label?: string
+}
+
+export interface CampaignStep {
+  offset_hours: number
+  variant_group?: string | null
+}
+
+export interface CreateCampaignInput {
+  name: string
+  action: string
+  destination_id?: number | null
+  segment: Record<string, unknown>
+  steps: CampaignStep[]
+  ab_test: boolean
+}
+
+export const templatesApi = {
+  list: () => apiFetch<Template[]>('/templates'),
+  create: (data: CreateTemplateInput) =>
+    apiFetch<Template>('/templates', { method: 'POST', body: JSON.stringify(data) }),
+}
+
+export const campaignsApi = {
+  list: () => apiFetch<Campaign[]>('/campaigns'),
+  create: (data: CreateCampaignInput) =>
+    apiFetch<Campaign>('/campaigns', { method: 'POST', body: JSON.stringify(data) }),
+  get: (id: number) => apiFetch<CampaignDetail>(`/campaigns/${id}`),
+  start: (id: number) =>
+    apiFetch<CampaignDetail>(`/campaigns/${id}/start`, { method: 'POST' }),
+  pause: (id: number) =>
+    apiFetch<CampaignDetail>(`/campaigns/${id}/pause`, { method: 'POST' }),
+  stop: (id: number) =>
+    apiFetch<CampaignDetail>(`/campaigns/${id}/stop`, { method: 'POST' }),
+  tick: (id: number) =>
+    apiFetch<CampaignTickResult>(`/campaigns/${id}/tick`, { method: 'POST' }),
+}
+
 // ---- Destinations / Add members (Phase 8) ----
 
 export interface Destination {

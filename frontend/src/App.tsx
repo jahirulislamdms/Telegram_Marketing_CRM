@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import AppLayout from './components/AppLayout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Accounts from './pages/Accounts'
+import Campaigns from './pages/Campaigns'
 import Contacts from './pages/Contacts'
 import Dashboard from './pages/Dashboard'
 import GroupsChannels from './pages/GroupsChannels'
@@ -57,6 +58,14 @@ export default function App() {
           element={
             <ProtectedRoute roles={['admin', 'manager']}>
               <Sender />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/campaigns"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <Campaigns />
             </ProtectedRoute>
           }
         />
