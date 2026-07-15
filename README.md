@@ -86,10 +86,10 @@ npm run dev
 ## Build progress
 
 Progress is tracked in the spec's **§13 Build Progress Tracker** and **§14 Activity Log**.
-Current status: **Phase 7 — Sender engine + anti-ban** complete (paced outreach with
-account rotation, per-account caps, randomized delays, active-hour windows, spintax,
-flood auto-pause; campaign sends land in the inbox). Phases 0–6 done (foundation,
-auth/RBAC, accounts & login, account health, warmup, contacts & pipeline, live inbox).
+Current status: **Phase 8 — Groups & Channels ("Add members")** complete (register
+destinations, build a member list, direct-add with automatic invite-link fallback,
+already-in-destination tag/exclusion). Phases 0–7 done (foundation, auth/RBAC,
+accounts & login, account health, warmup, contacts & pipeline, live inbox, sender).
 
 First run creates an admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
 in `.env` — change these before production. Set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`

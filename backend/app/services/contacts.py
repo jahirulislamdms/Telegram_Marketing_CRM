@@ -178,7 +178,12 @@ async def list_contacts(
     source: str | None = None,
     resolution: str | None = None,
     q: str | None = None,
+    in_destination: int | None = None,
+    not_in_destination: int | None = None,
 ) -> list[Contact]:
+    from app.db.models.destination import GroupMembership
+
+    in_states = ("added", "invited", "joined")
     stmt = select(Contact)
     if assigned_agent_id is not None:
         stmt = stmt.where(Contact.assigned_agent_id == assigned_agent_id)
@@ -188,6 +193,18 @@ async def list_contacts(
         stmt = stmt.where(Contact.source == source)
     if resolution:
         stmt = stmt.where(Contact.resolution_status == resolution)
+    if in_destination is not None:
+        sub = select(GroupMembership.contact_id).where(
+            GroupMembership.destination_id == in_destination,
+            GroupMembership.state.in_(in_states),
+        )
+        stmt = stmt.where(Contact.id.in_(sub))
+    if not_in_destination is not None:
+        sub = select(GroupMembership.contact_id).where(
+            GroupMembership.destination_id == not_in_destination,
+            GroupMembership.state.in_(in_states),
+        )
+        stmt = stmt.where(Contact.id.notin_(sub))
     if q:
         like = f"%{q.lower()}%"
         stmt = stmt.where(

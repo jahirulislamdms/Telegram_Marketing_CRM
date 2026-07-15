@@ -178,6 +178,8 @@ async def list_contacts(
     source: str | None = Query(default=None),
     resolution: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    in_destination: int | None = Query(default=None),
+    not_in_destination: int | None = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
@@ -189,6 +191,8 @@ async def list_contacts(
         source=source,
         resolution=resolution,
         q=q,
+        in_destination=in_destination,
+        not_in_destination=not_in_destination,
     )
 
 

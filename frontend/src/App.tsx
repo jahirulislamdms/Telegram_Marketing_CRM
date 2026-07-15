@@ -4,6 +4,7 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Accounts from './pages/Accounts'
 import Contacts from './pages/Contacts'
 import Dashboard from './pages/Dashboard'
+import GroupsChannels from './pages/GroupsChannels'
 import Inbox from './pages/Inbox'
 import Login from './pages/Login'
 import Pipeline from './pages/Pipeline'
@@ -43,6 +44,14 @@ export default function App() {
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/inbox" element={<Inbox />} />
+        <Route
+          path="/groups"
+          element={
+            <ProtectedRoute roles={['admin', 'manager']}>
+              <GroupsChannels />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/sender"
           element={

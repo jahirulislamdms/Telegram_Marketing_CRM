@@ -10,6 +10,7 @@ from app.api.accounts import router as accounts_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.contacts import router as contacts_router
+from app.api.destinations import router as destinations_router
 from app.api.health import router as health_router
 from app.api.inbox import inbox_ws
 from app.api.inbox import router as inbox_router
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(contacts_router, prefix="/api")
     app.include_router(inbox_router, prefix="/api")
     app.include_router(sender_router, prefix="/api")
+    app.include_router(destinations_router, prefix="/api")
     app.add_api_websocket_route("/ws/inbox", inbox_ws)
     return app
 

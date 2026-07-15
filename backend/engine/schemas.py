@@ -59,6 +59,15 @@ class ResolvePhone(Credentials):
     phone: str
 
 
+class ResolveDestination(Credentials):
+    link: str
+
+
+class AddMember(Credentials):
+    entity_id: int
+    target: str
+
+
 class TelegramUser(BaseModel):
     id: int
     username: str | None = None

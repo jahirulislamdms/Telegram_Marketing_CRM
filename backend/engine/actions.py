@@ -8,8 +8,13 @@ from telethon.errors import (
     UserAlreadyParticipantError,
     UserBannedInChannelError,
 )
-from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest
+from telethon.tl.functions.channels import InviteToChannelRequest, JoinChannelRequest
+from telethon.tl.functions.messages import (
+    AddChatUserRequest,
+    ExportChatInviteRequest,
+    ImportChatInviteRequest,
+)
+from telethon.tl.types import Channel
 
 log = logging.getLogger("engine.actions")
 
@@ -72,3 +77,57 @@ async def send_file(client, target: str, file: str, caption: str | None = None) 
         return {"sent": False, "error": "flood", "seconds": exc.seconds}
     except PeerFloodError:
         return {"sent": False, "error": "peerflood"}
+
+
+async def resolve_destination(client, link: str) -> dict:
+    entity = await client.get_entity(link)
+    if isinstance(entity, Channel):
+        dtype = "channel" if getattr(entity, "broadcast", False) else "group"
+    else:
+        dtype = "group"
+    return {
+        "tg_entity_id": getattr(entity, "id", None),
+        "title": getattr(entity, "title", None),
+        "type": dtype,
+    }
+
+
+async def add_member(client, entity_id, target) -> dict:
+    """Direct-add ``target`` to the destination; fall back to an invite link.
+
+    Returns {state: added|invited|failed, method, error?, invite_link?}.
+    """
+    try:
+        entity = await client.get_entity(entity_id)
+        user = await client.get_entity(target)
+    except Exception as exc:  # noqa: BLE001
+        return {"state": "failed", "detail": f"resolve: {exc}"}
+
+    # 1) Try a direct add.
+    try:
+        if isinstance(entity, Channel):
+            await client(InviteToChannelRequest(entity, [user]))
+        else:
+            await client(AddChatUserRequest(entity.id, user, fwd_limit=10))
+        return {"state": "added", "method": "direct_add"}
+    except PeerFloodError:
+        return {"state": "failed", "method": "direct_add", "error": "peerflood"}
+    except FloodWaitError as exc:
+        return {"state": "failed", "method": "direct_add", "error": "flood", "seconds": exc.seconds}
+    except Exception as direct_exc:  # noqa: BLE001
+        # 2) Fall back to sending a personal invite link.
+        try:
+            invite = await client(ExportChatInviteRequest(entity))
+            link = getattr(invite, "link", None)
+            await client.send_message(user, f"You're invited to join: {link}")
+            return {"state": "invited", "method": "invite", "invite_link": link}
+        except PeerFloodError:
+            return {"state": "failed", "method": "invite", "error": "peerflood"}
+        except FloodWaitError as exc:
+            return {"state": "failed", "method": "invite", "error": "flood", "seconds": exc.seconds}
+        except Exception as invite_exc:  # noqa: BLE001
+            return {
+                "state": "failed",
+                "method": "invite",
+                "detail": f"add={direct_exc}; invite={invite_exc}",
+            }

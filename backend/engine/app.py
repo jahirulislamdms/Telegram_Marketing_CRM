@@ -16,11 +16,13 @@ from fastapi import FastAPI, HTTPException
 from app.config import settings
 from engine.manager import EngineLoginError, SessionManager
 from engine.schemas import (
+    AddMember,
     Credentials,
     JoinRequest,
     PasswordSubmit,
     PhoneSendCode,
     PhoneSignIn,
+    ResolveDestination,
     ResolvePhone,
     ResolveUsername,
     SendFile,
@@ -249,6 +251,26 @@ async def send_file(account_id: int, body: SendFile) -> dict:
             body.target,
             body.file,
             body.caption,
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/destination/resolve")
+async def resolve_destination(account_id: int, body: ResolveDestination) -> dict:
+    try:
+        return await _manager().resolve_destination(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.link
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/destination/add")
+async def add_member(account_id: int, body: AddMember) -> dict:
+    try:
+        return await _manager().add_member(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.entity_id, body.target
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

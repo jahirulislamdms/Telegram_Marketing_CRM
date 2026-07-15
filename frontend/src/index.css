@@ -864,6 +864,36 @@ select:focus {
   font-size: 0.82rem;
 }
 
+/* ---------- Member picker (Groups) ---------- */
+.member-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.member-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.member-chip input {
+  width: auto;
+}
+.member-chip--in {
+  opacity: 0.55;
+  cursor: default;
+}
+.member-chip small {
+  color: var(--ok);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

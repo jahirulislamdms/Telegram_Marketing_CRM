@@ -332,6 +332,28 @@ class SessionManager:
             client = await self._authorized_client(account_id, api_id, api_hash, proxy)
             return await action_ops.send_file(client, target, file, caption)
 
+    # --------------------------------------------------------- destinations ---
+
+    async def resolve_destination(
+        self, account_id: int, api_id: str, api_hash: str, proxy: dict | None, link: str
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await action_ops.resolve_destination(client, link)
+
+    async def add_member(
+        self,
+        account_id: int,
+        api_id: str,
+        api_hash: str,
+        proxy: dict | None,
+        entity_id: int,
+        target: str,
+    ) -> dict:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await action_ops.add_member(client, entity_id, target)
+
     # ------------------------------------------------------------- resolve ---
 
     async def resolve_username(

@@ -503,6 +503,62 @@ export const inboxApi = {
     }),
 }
 
+// ---- Destinations / Add members (Phase 8) ----
+
+export interface Destination {
+  id: number
+  title: string | null
+  link: string
+  tg_entity_id: number | null
+  type: string
+  invite_link: string | null
+  created_at: string
+}
+
+export interface Membership {
+  id: number
+  contact_id: number
+  contact_label: string
+  state: string
+  method: string | null
+  account_id: number | null
+  error: string | null
+}
+
+export interface DestinationDetail extends Destination {
+  stats: Record<string, number>
+  memberships: Membership[]
+}
+
+export interface AddMembersResult {
+  queued: number
+  skipped_existing: number
+}
+
+export interface AddTickResult {
+  added: number
+  invited: number
+  failed: number
+  paused: boolean
+  actions: Array<Record<string, unknown>>
+  warning: string | null
+}
+
+export const destinationsApi = {
+  list: () => apiFetch<Destination[]>('/destinations'),
+  register: (link: string) =>
+    apiFetch<Destination>('/destinations', { method: 'POST', body: JSON.stringify({ link }) }),
+  get: (id: number) => apiFetch<DestinationDetail>(`/destinations/${id}`),
+  remove: (id: number) => apiFetch<void>(`/destinations/${id}`, { method: 'DELETE' }),
+  addMembers: (id: number, body: { contact_ids?: number[]; identifiers?: string[] }) =>
+    apiFetch<AddMembersResult>(`/destinations/${id}/add-members`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  tick: (id: number) =>
+    apiFetch<AddTickResult>(`/destinations/${id}/add-members/tick`, { method: 'POST' }),
+}
+
 // ---- Sender (Phase 7) ----
 
 export interface SendJob {

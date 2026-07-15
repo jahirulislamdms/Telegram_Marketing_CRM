@@ -218,3 +218,23 @@ async def resolve_phone(account: Account, proxy: Proxy | None, phone: str) -> di
     body = credentials_payload(account, proxy)
     body["phone"] = phone
     return await _request("POST", f"/clients/{account.id}/resolve/phone", json=body)
+
+
+# ---- Destinations / add members (Phase 8) ----
+
+
+async def resolve_destination(account: Account, proxy: Proxy | None, link: str) -> dict:
+    body = credentials_payload(account, proxy)
+    body["link"] = link
+    return await _request(
+        "POST", f"/clients/{account.id}/destination/resolve", json=body
+    )
+
+
+async def add_member(
+    account: Account, proxy: Proxy | None, entity_id: int, target: str
+) -> dict:
+    body = credentials_payload(account, proxy)
+    body["entity_id"] = entity_id
+    body["target"] = target
+    return await _request("POST", f"/clients/{account.id}/destination/add", json=body)

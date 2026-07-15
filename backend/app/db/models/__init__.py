@@ -7,6 +7,7 @@ Alembic autogenerate. Models are added per build phase.
 from app.db.base import Base
 from app.db.models.account import Account
 from app.db.models.contact import Contact
+from app.db.models.destination import Destination, GroupMembership
 from app.db.models.event import Event
 from app.db.models.inbox import Conversation, Message
 from app.db.models.proxy import Proxy
@@ -25,6 +26,8 @@ __all__ = [
     "Message",
     "SendJob",
     "SendTarget",
+    "Destination",
+    "GroupMembership",
     "WarmupRun",
     "WarmupParticipant",
     "WarmupPartner",
