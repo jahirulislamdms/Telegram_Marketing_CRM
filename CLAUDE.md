@@ -24,9 +24,10 @@ This is the source of truth for progress. Do it as part of the same task, every 
 
 ## Current status
 
-Phases **0–11 are DONE**. **Phase 12 (Hardening & deploy) is next.**
+**ALL 13 phases (0–12) are DONE — the v1 build is complete.** The only remaining
+item is the optional future phase (Telegram Mini App + Stars), out of scope for v1.
 Always confirm current status from spec **§13/§14** — they are authoritative.
-`BUILD_MEMORY.md` has the condensed per-phase record and the remaining-phase plan.
+`BUILD_MEMORY.md` has the condensed per-phase record.
 
 ## Environment (this machine)
 

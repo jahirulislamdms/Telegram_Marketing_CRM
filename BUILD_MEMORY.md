@@ -2,8 +2,9 @@
 
 Self-contained memory so any AI/session can continue identically. Pairs with
 [`CLAUDE.md`](./CLAUDE.md) (process) and the spec's §13/§14 (authoritative progress).
-Last updated after **Phase 11**. Tests: **131 passing**. Commits `bb6d683` (P0+1) …
-Phase 11, all pushed to `origin/main`. Migrations `0001`…`0010`.
+Last updated after **Phase 12 — BUILD COMPLETE (all 13 phases 0–12 done)**. Tests:
+**144 passing**. Commits `bb6d683` (P0+1) … Phase 12, all pushed to `origin/main`.
+Migrations `0001`…`0010` (Phase 12 added no DB changes).
 
 ## Tech stack
 
@@ -93,6 +94,17 @@ frontend/src/       api/client.ts, store/auth.ts, lib/{theme,useInboxSocket}, co
   monitor (WS `dashboard` push → **Live**, 15s poll fallback; agents get a simple home) + new
   **Analytics** page (funnel, per-source, campaign A/B, UTM, referral leaderboard + tools).
 
+- **P12 Hardening & deploy** — no DB changes. `app/ratelimit.py` (fixed-window per-IP limiter,
+  Redis `INCR`+TTL with in-process fallback) + `app/middleware.py` (`RateLimitMiddleware` on
+  `/api/*`, tighter on auth, 429+`Retry-After`+`X-RateLimit-*`; `SecurityHeadersMiddleware`).
+  Registered before CORS (CORS stays outermost). Secrets guard: `settings.insecure_production_defaults()`
+  + **prod startup refuses insecure defaults**; CLI `generate-secret` + `prod-check`. `/health/ready`
+  now checks Postgres (required) + Redis (reported). Backups: `scripts/{backup,restore,backup-loop}.sh`
+  + a `backup` service in prod compose (nightly pg_dump, rotation → `./backups`). Caddyfile adds
+  security headers (+`-Server`). `docs/DEPLOY.md` (Ubuntu + Windows). Config/`.env.example` gained
+  rate-limit/security/HSTS/backup knobs. **conftest disables rate limiting by default** (shared
+  TestClient IP would trip it) + no-ops `limiter.startup` (skip Redis probe).
+
 ## Engine internal API (`:9100`, private) — routes so far
 
 `GET /health`, `GET|POST /clients/{id}/status|start|logout`;
@@ -121,8 +133,8 @@ backend `engine_client` wraps each; on network/5xx it raises `EngineUnavailable`
 
 ## Remaining phases (spec §9)
 
-- **P12 Hardening & deploy** — HTTPS via Caddy, `pg_dump` backups, rate-limited API, secrets,
-  prod compose, Ubuntu + Windows install docs.
+- **None — all 13 phases (0–12) are complete.** The only remaining item is the optional
+  future phase (Telegram Mini App + Stars payments), which is out of scope for v1.
 
 ## How to resume in one line
 

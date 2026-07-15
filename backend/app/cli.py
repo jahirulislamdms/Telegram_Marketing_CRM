@@ -12,6 +12,7 @@ the backend container on startup.
 
 import argparse
 import asyncio
+import secrets
 import sys
 
 from app.config import settings
@@ -37,6 +38,23 @@ async def _ensure_admin(email: str, password: str, name: str) -> int:
         return 0
 
 
+def _generate_secret() -> int:
+    print(secrets.token_hex(32))
+    return 0
+
+
+def _prod_check() -> int:
+    """Report insecure configuration for a production deployment."""
+    problems = settings.insecure_production_defaults()
+    if not problems:
+        print("[cli] production configuration looks good ✓")
+        return 0
+    print("[cli] insecure configuration for production:")
+    for p in problems:
+        print(f"  - {p}")
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -47,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
     create.add_argument("--email", required=True)
     create.add_argument("--password", required=True)
     create.add_argument("--name", default="Administrator")
+
+    sub.add_parser("generate-secret", help="Print a strong random SECRET_KEY (hex)")
+    sub.add_parser("prod-check", help="Fail if the config has insecure production defaults")
 
     args = parser.parse_args(argv)
 
@@ -60,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "create-admin":
         return asyncio.run(_ensure_admin(args.email, args.password, args.name))
+    if args.command == "generate-secret":
+        return _generate_secret()
+    if args.command == "prod-check":
+        return _prod_check()
     return 1
 
 

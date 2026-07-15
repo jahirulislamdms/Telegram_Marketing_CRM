@@ -74,6 +74,41 @@ class Settings(BaseSettings):
     send_min_delay_seconds: int = 40
     send_max_delay_seconds: int = 180
 
+    # ---- Security / hardening (Phase 12) ----
+    # Per-client-IP request rate limiting (fixed window of `rate_limit_window_seconds`).
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute: int = 240  # global default for /api/* per IP
+    rate_limit_login_per_minute: int = 10  # tighter cap for auth endpoints (brute-force)
+    rate_limit_window_seconds: int = 60
+    # Emit standard security response headers (HSTS, nosniff, frame-deny, ...).
+    security_headers_enabled: bool = True
+    # Send HSTS (only meaningful behind HTTPS; safe to leave on — browsers ignore on http).
+    hsts_enabled: bool = True
+    hsts_max_age: int = 31536000  # 1 year
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.strip().lower() == "production"
+
+    def insecure_production_defaults(self) -> list[str]:
+        """Return a list of insecure default settings that must not ship to prod.
+
+        Empty when the configuration is safe. Used by the startup guard and the
+        ``app.cli prod-check`` command.
+        """
+        problems: list[str] = []
+        if self.secret_key == "change-me-in-production" or len(self.secret_key) < 16:
+            problems.append("SECRET_KEY is unset/default/too short (use `openssl rand -hex 32`)")
+        if self.bootstrap_admin_password == "admin12345":
+            problems.append("BOOTSTRAP_ADMIN_PASSWORD is the default value")
+        if self.postgres_password in ("crm", "", "postgres") and not self.database_url_env:
+            problems.append("POSTGRES_PASSWORD is a weak default")
+        if self.cors_origin_list == ["*"]:
+            problems.append("CORS_ORIGINS is '*' (set your domain in production)")
+        if self.debug:
+            problems.append("DEBUG is true (set DEBUG=false in production)")
+        return problems
+
     @property
     def cors_origin_list(self) -> list[str]:
         if self.cors_origins.strip() == "*":

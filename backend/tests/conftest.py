@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 import app.realtime as _realtime
+import app.ratelimit as _ratelimit
 import app.services.bot_consumer as _bot_consumer
 import app.services.inbox_consumer as _inbox_consumer
 from app.db.models import Base
@@ -37,6 +38,16 @@ _inbox_consumer.startup = _noop_async
 _inbox_consumer.shutdown = _noop_async
 _bot_consumer.startup = _noop_async
 _bot_consumer.shutdown = _noop_async
+# Rate limiter: skip the Redis probe so it uses the in-process store in tests.
+_ratelimit.limiter.startup = _noop_async
+_ratelimit.limiter.shutdown = _noop_async
+
+# Rate limiting is disabled by default in the suite (every request shares the
+# TestClient's single client IP, which would trip the limit). The dedicated
+# hardening test re-enables it locally via monkeypatch.
+from app.config import settings as _settings  # noqa: E402
+
+_settings.rate_limit_enabled = False
 
 DB_PATH = pathlib.Path(tempfile.gettempdir()) / "tgcrm_test.db"
 TEST_DATABASE_URL = f"sqlite+aiosqlite:///{DB_PATH.as_posix()}"

@@ -53,12 +53,21 @@ docker compose up --build
 - Backend direct: http://localhost:8000/health
 - Frontend direct: http://localhost:5173
 
-Production:
+Production (HTTPS, hardened, nightly backups) — see the full
+[**Deployment & Operations Guide**](./docs/DEPLOY.md) for Ubuntu VPS and Windows:
 
 ```bash
-# set CADDY_SITE_ADDRESS=your-domain.com in .env first
+# set ENVIRONMENT=production, a strong SECRET_KEY, real admin/DB passwords,
+# CORS_ORIGINS, and CADDY_SITE_ADDRESS=your-domain.com in .env first
+docker compose run --rm backend python -m app.cli generate-secret   # strong SECRET_KEY
+docker compose run --rm backend python -m app.cli prod-check         # verify no insecure defaults
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 ```
+
+Caddy issues HTTPS automatically once your domain points at the server. In
+production the backend **refuses to start** on default secrets, the API is
+**rate-limited** per IP (tighter on login) and sends **security headers**, and a
+`backup` service takes **nightly `pg_dump`** snapshots into `./backups`.
 
 ## Local development without Docker
 
@@ -86,10 +95,12 @@ npm run dev
 ## Build progress
 
 Progress is tracked in the spec's **§13 Build Progress Tracker** and **§14 Activity Log**.
-Current status: **Phase 10 — Multi-bot console** complete (host aiogram bots by token,
-two-way bot inbox, channel posts with image, broadcasts, subscribers, UTM deep-links).
-Phases 0–9 done (foundation, auth/RBAC, accounts & login, account health, warmup,
-contacts & pipeline, live inbox, sender, groups & add-members, campaigns + A/B).
+Current status: **all 13 phases (0–12) complete.** Phase 11 added the live
+system-monitoring Dashboard, marketing analytics (funnel, per-source conversion,
+campaign/A-B, UTM attribution), and the referral program; Phase 12 added
+production hardening — HTTPS via Caddy, per-IP API rate limiting, security
+headers, a secrets guard, and nightly `pg_dump` backups (see
+[`docs/DEPLOY.md`](./docs/DEPLOY.md)).
 
 First run creates an admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
 in `.env` — change these before production. Set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`

@@ -7,6 +7,10 @@
 sessions/*
 !sessions/.gitkeep
 
+# ---- Database backups (persisted volume) ----
+backups/*
+!backups/.gitkeep
+
 # ---- Python ----
 __pycache__/
 *.py[cod]

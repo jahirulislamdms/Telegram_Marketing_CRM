@@ -23,6 +23,8 @@ from app.api.users import router as users_router
 from app.api.warmup import router as warmup_router
 from app.config import settings
 from app import realtime
+from app.middleware import RateLimitMiddleware, SecurityHeadersMiddleware
+from app.ratelimit import limiter
 from app.services import bot_consumer
 from app.services import inbox_consumer
 
@@ -41,6 +43,19 @@ async def lifespan(app: FastAPI):
         settings.app_version,
         settings.environment,
     )
+    # In production, refuse to boot on insecure default secrets.
+    problems = settings.insecure_production_defaults()
+    if problems:
+        if settings.is_production:
+            for p in problems:
+                log.error("insecure configuration: %s", p)
+            raise RuntimeError(
+                "Refusing to start in production with insecure defaults: "
+                + "; ".join(problems)
+            )
+        for p in problems:
+            log.warning("insecure default (fine for dev, fix before prod): %s", p)
+    await limiter.startup()
     await realtime.startup()
     await inbox_consumer.startup()
     await bot_consumer.startup()
@@ -48,6 +63,7 @@ async def lifespan(app: FastAPI):
     await bot_consumer.shutdown()
     await inbox_consumer.shutdown()
     await realtime.shutdown()
+    await limiter.shutdown()
     log.info("Shutting down %s", settings.app_name)
 
 
@@ -58,6 +74,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Middleware runs outermost-first in reverse registration order, so register
+    # the security-header and rate-limit layers before CORS: CORS ends up
+    # outermost and stamps its headers onto 429/other responses too.
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
