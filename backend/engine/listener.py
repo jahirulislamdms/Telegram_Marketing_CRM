@@ -3,6 +3,12 @@
 Registered on each authorized client. Private incoming messages are published to
 the ``inbox:incoming`` Redis channel; the backend consumes them, persists them,
 and fans them out to the WebSocket inbox.
+
+**Retention (15.1.h):** only ``NewMessage`` is handled — we deliberately do NOT
+subscribe to ``MessageDeleted``. The CRM is the system of record, so a message
+the peer later deletes on Telegram stays in our thread. Its media becomes
+unfetchable (the media endpoint 404s and the UI shows a placeholder), but the
+record and any text are kept. Do not add a deletion handler that removes rows.
 """
 
 import json

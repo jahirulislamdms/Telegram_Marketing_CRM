@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -205,9 +206,11 @@ async def list_conversations(
     q: str | None = None,
     status: str | None = None,
     unread_only: bool = False,
+    archived: bool = False,
     assigned_agent_id: int | None = None,
 ) -> list[Conversation]:
-    stmt = select(Conversation)
+    # The main inbox shows non-archived chats; the Archive folder passes True — 15.1.j.
+    stmt = select(Conversation).where(Conversation.archived.is_(archived))
     if account_ids:
         # Multi-account selection (all / one / many) — 15.1.e.
         stmt = stmt.where(Conversation.account_id.in_(account_ids))
@@ -295,6 +298,28 @@ async def set_status(
 # ------------------------------------------------------------- serialising ---
 
 
+async def set_archived(
+    db: AsyncSession, conversation: Conversation, archived: bool
+) -> Conversation:
+    """Archive/unarchive a chat — 15.1.i. History is kept either way."""
+    conversation.archived = archived
+    await db.commit()
+    await db.refresh(conversation)
+    return conversation
+
+
+async def delete_conversation(db: AsyncSession, conversation: Conversation) -> None:
+    """Operator-initiated removal of a chat + its messages from the CRM — 15.1.i.
+
+    This only deletes *our* copy; it never touches the peer's Telegram. Messages
+    are removed explicitly rather than relying on FK cascade, which SQLite does
+    not enforce unless PRAGMA foreign_keys is on.
+    """
+    await db.execute(sa_delete(Message).where(Message.conversation_id == conversation.id))
+    await db.delete(conversation)
+    await db.commit()
+
+
 async def save_peer_as_contact(db: AsyncSession, conversation: Conversation) -> Contact:
     """Create (or re-link) a CRM contact from an inbox peer — 15.1.d.
 
@@ -369,4 +394,5 @@ async def conversation_dict(db: AsyncSession, conversation: Conversation) -> dic
         "last_message_preview": conversation.last_message_preview,
         "unread_count": conversation.unread_count,
         "status": conversation.status,
+        "archived": conversation.archived,
     }

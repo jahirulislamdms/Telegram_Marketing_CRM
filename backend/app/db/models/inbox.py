@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -49,6 +50,11 @@ class Conversation(Base):
     )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="new", server_default="new"
+    )
+    # Archived chats leave the main inbox but keep their history (independent of
+    # the pipeline status/stage).
+    archived: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=func.false()
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -27,6 +27,7 @@ class ConversationOut(BaseModel):
     last_message_preview: str | None
     unread_count: int
     status: str
+    archived: bool
 
 
 class MessageOut(BaseModel):
@@ -52,6 +53,10 @@ class SendReply(BaseModel):
     type: Literal["text", "link", "image"] = "text"
     body: str | None = None
     media_url: str | None = None
+
+
+class SetArchived(BaseModel):
+    archived: bool = True
 
 
 class SetStatus(BaseModel):

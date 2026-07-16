@@ -1218,6 +1218,41 @@ select:focus {
   color: var(--muted);
 }
 
+/* ---------- Inbox folders & chat actions (Phase 15.1.i/j) ---------- */
+.folder-tabs {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.folder-tab {
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  cursor: pointer;
+}
+.folder-tab:hover {
+  color: var(--text);
+}
+.folder-tab--active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-danger {
+  color: var(--err);
+}
+.btn-danger:hover:not(:disabled) {
+  border-color: var(--err);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

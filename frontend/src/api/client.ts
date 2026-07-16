@@ -448,6 +448,7 @@ export interface Conversation {
   last_message_preview: string | null
   unread_count: number
   status: string
+  archived: boolean
 }
 
 export interface SavedContact {
@@ -531,6 +532,13 @@ export const inboxApi = {
   // Save an unlinked inbox peer as a CRM contact.
   saveContact: (id: number) =>
     apiFetch<SavedContact>(`/inbox/conversations/${id}/save-contact`, { method: 'POST' }),
+  // Archive / unarchive (history kept); delete removes our copy only.
+  archive: (id: number, archived: boolean) =>
+    apiFetch<Conversation>(`/inbox/conversations/${id}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ archived }),
+    }),
+  remove: (id: number) => apiFetch<void>(`/inbox/conversations/${id}`, { method: 'DELETE' }),
   // Media is streamed from Telegram on demand (never stored on the VPS). Fetched
   // as an authed blob so the token stays in the header, not the URL.
   media: (messageId: number) => fetchBlob(`/inbox/messages/${messageId}/media`),

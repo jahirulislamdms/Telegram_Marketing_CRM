@@ -138,6 +138,8 @@ export default function Inbox() {
   // Conversation search within the current selection — 15.1.g.
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  // Inbox vs Archive folder — 15.1.j.
+  const [showArchived, setShowArchived] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -151,13 +153,14 @@ export default function Inbox() {
     try {
       const params: Record<string, string> = {}
       if (unreadOnly) params.unread = 'true'
+      if (showArchived) params.archived = 'true'
       if (selectedAccounts.size > 0) params.account_ids = [...selectedAccounts].join(',')
       if (debouncedSearch.trim()) params.q = debouncedSearch.trim()
       setConversations(await inboxApi.listConversations(params))
     } catch (e) {
       setError(errMsg(e))
     }
-  }, [unreadOnly, selectedAccounts, debouncedSearch])
+  }, [unreadOnly, selectedAccounts, debouncedSearch, showArchived])
 
   useEffect(() => {
     void loadConversations()
@@ -182,6 +185,42 @@ export default function Inbox() {
       else next.add(id)
       return next
     })
+  }
+
+  const toggleArchive = async () => {
+    if (!thread) return
+    setError(null)
+    try {
+      await inboxApi.archive(thread.conversation.id, !thread.conversation.archived)
+      // It leaves the current folder, so drop the selection and refresh.
+      setThread(null)
+      setSelectedId(null)
+      await loadConversations()
+    } catch (e) {
+      setError(errMsg(e))
+    }
+  }
+
+  const deleteConversation = async () => {
+    if (!thread) return
+    const label = thread.conversation.label
+    if (
+      !window.confirm(
+        `Delete the conversation with ${label} from the CRM?\n\n` +
+          'This removes your copy and its message history permanently. ' +
+          "It does NOT delete anything from the other person's Telegram.",
+      )
+    )
+      return
+    setError(null)
+    try {
+      await inboxApi.remove(thread.conversation.id)
+      setThread(null)
+      setSelectedId(null)
+      await loadConversations()
+    } catch (e) {
+      setError(errMsg(e))
+    }
   }
 
   const saveContact = async () => {
@@ -340,6 +379,20 @@ export default function Inbox() {
           <p className="page-subtitle">Unified, multi-account live conversations.</p>
         </div>
         <div className="inbox-head-actions">
+          <div className="folder-tabs">
+            <button
+              className={`folder-tab${!showArchived ? ' folder-tab--active' : ''}`}
+              onClick={() => setShowArchived(false)}
+            >
+              Inbox
+            </button>
+            <button
+              className={`folder-tab${showArchived ? ' folder-tab--active' : ''}`}
+              onClick={() => setShowArchived(true)}
+            >
+              Archive
+            </button>
+          </div>
           <div className="acct-picker">
             <button
               className="btn btn-ghost btn-sm"
@@ -442,16 +495,36 @@ export default function Inbox() {
                   <span className="thread-title">{thread.conversation.label}</span>
                   <span className="thread-sub">via {thread.conversation.account_label}</span>
                 </div>
-                <select
-                  value={thread.conversation.status}
-                  onChange={(e) => changeStatus(e.target.value as ConversationStatus)}
-                >
-                  {CONVERSATION_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s.replace('_', ' ')}
-                    </option>
-                  ))}
-                </select>
+                <div className="thread-actions">
+                  <select
+                    value={thread.conversation.status}
+                    onChange={(e) => changeStatus(e.target.value as ConversationStatus)}
+                  >
+                    {CONVERSATION_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {s.replace('_', ' ')}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={toggleArchive}
+                    title={
+                      thread.conversation.archived
+                        ? 'Move back to the inbox'
+                        : 'Archive this chat (history is kept)'
+                    }
+                  >
+                    {thread.conversation.archived ? 'Unarchive' : 'Archive'}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm btn-danger"
+                    onClick={deleteConversation}
+                    title="Delete our copy of this chat (does not affect their Telegram)"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               <div className="thread-body">
                 {thread.messages.map((m) => {

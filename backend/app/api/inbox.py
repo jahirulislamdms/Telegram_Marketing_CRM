@@ -31,6 +31,7 @@ from app.schemas.inbox import (
     ConversationOut,
     MessageOut,
     SendReply,
+    SetArchived,
     SetStatus,
     SimulateIncoming,
     ThreadOut,
@@ -95,6 +96,7 @@ async def list_conversations(
     q: str | None = Query(default=None, description="Search peer/contact/last message"),
     conv_status: str | None = Query(default=None, alias="status"),
     unread: bool = Query(default=False),
+    archived: bool = Query(default=False, description="true = the Archive folder"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
@@ -114,9 +116,43 @@ async def list_conversations(
         q=q,
         status=conv_status,
         unread_only=unread,
+        archived=archived,
         assigned_agent_id=agent_filter,
     )
     return [await inbox_service.conversation_dict(db, c) for c in conversations]
+
+
+@router.post("/conversations/{conversation_id}/archive", response_model=ConversationOut)
+async def set_archived(
+    conversation_id: int,
+    payload: SetArchived,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationOut:
+    """Archive / unarchive a chat (15.1.i/j) — history is kept either way."""
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+    await inbox_service.set_archived(db, conversation, payload.archived)
+    await _broadcast_conversation(db, conversation)
+    return ConversationOut(**await inbox_service.conversation_dict(db, conversation))
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: int,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete our copy of a chat + its messages (15.1.i).
+
+    Destructive and Admin/Manager-only; it never touches the peer's Telegram.
+    """
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await audit.record_event(
+        db, type="inbox.delete_conversation", actor_type="user", actor_id=user.id,
+        entity_ref=f"conversation:{conversation_id}",
+    )
+    await inbox_service.delete_conversation(db, conversation)
 
 
 @router.post("/conversations/{conversation_id}/save-contact")
