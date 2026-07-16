@@ -3,6 +3,10 @@
 *.env
 !.env.example
 
+# ---- Local operator notes / credentials — never upload ----
+account details*.txt
+*(dont upload)*
+
 # ---- Telegram sessions (persisted volume) ----
 sessions/*
 !sessions/.gitkeep
