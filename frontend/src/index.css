@@ -1154,6 +1154,70 @@ select:focus {
   }
 }
 
+/* ---------- Inbox multi-account picker & search (Phase 15.1.e/f/g) ---------- */
+.acct-picker {
+  position: relative;
+}
+.acct-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  min-width: 220px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.acct-search {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.acct-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.acct-opt:hover {
+  background: var(--bg-elev);
+}
+.acct-opt input {
+  width: auto;
+}
+.conv-search {
+  min-width: 190px;
+}
+.conv-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.conv-account {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread-head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.thread-sub {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

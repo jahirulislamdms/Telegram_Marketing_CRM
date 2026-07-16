@@ -4,6 +4,7 @@ import {
   CONVERSATION_STATUSES,
   accountsApi,
   inboxApi,
+  type Account,
   type Conversation,
   type ConversationStatus,
   type InboxEvent,
@@ -129,6 +130,14 @@ export default function Inbox() {
   const [thread, setThread] = useState<Thread | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [unreadOnly, setUnreadOnly] = useState(false)
+  // Multi-account selection (empty = all accounts) + searchable picker — 15.1.e.
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<number>>(new Set())
+  const [acctQuery, setAcctQuery] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  // Conversation search within the current selection — 15.1.g.
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [recording, setRecording] = useState(false)
@@ -142,15 +151,50 @@ export default function Inbox() {
     try {
       const params: Record<string, string> = {}
       if (unreadOnly) params.unread = 'true'
+      if (selectedAccounts.size > 0) params.account_ids = [...selectedAccounts].join(',')
+      if (debouncedSearch.trim()) params.q = debouncedSearch.trim()
       setConversations(await inboxApi.listConversations(params))
     } catch (e) {
       setError(errMsg(e))
     }
-  }, [unreadOnly])
+  }, [unreadOnly, selectedAccounts, debouncedSearch])
 
   useEffect(() => {
     void loadConversations()
   }, [loadConversations])
+
+  useEffect(() => {
+    accountsApi
+      .list()
+      .then(setAccounts)
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const toggleAccount = (id: number) => {
+    setSelectedAccounts((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const saveContact = async () => {
+    if (!selectedId) return
+    setError(null)
+    try {
+      await inboxApi.saveContact(selectedId)
+      setThread(await inboxApi.getThread(selectedId))
+      await loadConversations()
+    } catch (e) {
+      setError(errMsg(e))
+    }
+  }
 
   const openConversation = async (id: number) => {
     setSelectedId(id)
@@ -296,6 +340,55 @@ export default function Inbox() {
           <p className="page-subtitle">Unified, multi-account live conversations.</p>
         </div>
         <div className="inbox-head-actions">
+          <div className="acct-picker">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setPickerOpen((o) => !o)}
+              title="Choose which accounts' inbox to show"
+            >
+              {selectedAccounts.size === 0
+                ? 'All accounts'
+                : `${selectedAccounts.size} account${selectedAccounts.size > 1 ? 's' : ''}`}{' '}
+              ▾
+            </button>
+            {pickerOpen && (
+              <div className="acct-menu">
+                <input
+                  className="acct-search"
+                  placeholder="Search accounts…"
+                  value={acctQuery}
+                  onChange={(e) => setAcctQuery(e.target.value)}
+                />
+                <label className="acct-opt">
+                  <input
+                    type="checkbox"
+                    checked={selectedAccounts.size === 0}
+                    onChange={() => setSelectedAccounts(new Set())}
+                  />
+                  <span>All accounts</span>
+                </label>
+                {accounts
+                  .filter((a) => a.label.toLowerCase().includes(acctQuery.toLowerCase()))
+                  .map((a) => (
+                    <label className="acct-opt" key={a.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedAccounts.has(a.id)}
+                        onChange={() => toggleAccount(a.id)}
+                      />
+                      <span>{a.label}</span>
+                    </label>
+                  ))}
+                {accounts.length === 0 && <p className="hint">No accounts yet.</p>}
+              </div>
+            )}
+          </div>
+          <input
+            className="conv-search"
+            placeholder="Search conversations…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <label className="checkbox">
             <input
               type="checkbox"
@@ -329,7 +422,10 @@ export default function Inbox() {
                   {c.unread_count > 0 && <span className="conv-unread">{c.unread_count}</span>}
                 </div>
                 <div className="conv-preview">{c.last_message_preview || '—'}</div>
-                <span className="badge badge--muted conv-status">{c.status.replace('_', ' ')}</span>
+                <div className="conv-meta-row">
+                  <span className="badge badge--muted conv-status">{c.status.replace('_', ' ')}</span>
+                  <span className="conv-account">via {c.account_label}</span>
+                </div>
               </button>
             ))
           )}
@@ -342,7 +438,10 @@ export default function Inbox() {
           ) : (
             <>
               <div className="thread-head">
-                <span className="thread-title">{thread.conversation.label}</span>
+                <div className="thread-head-main">
+                  <span className="thread-title">{thread.conversation.label}</span>
+                  <span className="thread-sub">via {thread.conversation.account_label}</span>
+                </div>
                 <select
                   value={thread.conversation.status}
                   onChange={(e) => changeStatus(e.target.value as ConversationStatus)}
@@ -413,33 +512,65 @@ export default function Inbox() {
           )}
         </section>
 
-        {/* Contact profile */}
+        {/* Contact / peer profile */}
         <aside className="inbox-profile">
-          {thread?.contact ? (
+          {!thread ? (
             <div className="card">
-              <div className="card-head">Contact</div>
-              <dl className="meta">
-                <div>
-                  <dt>Name</dt>
-                  <dd>{String(thread.contact.label ?? '')}</dd>
-                </div>
-                <div>
-                  <dt>Stage</dt>
-                  <dd>{String(thread.contact.stage ?? '')}</dd>
-                </div>
-                <div>
-                  <dt>Source</dt>
-                  <dd>{String(thread.contact.source ?? '—')}</dd>
-                </div>
-                <div>
-                  <dt>Consent</dt>
-                  <dd>{thread.contact.consent ? '✓' : '—'}</dd>
-                </div>
-              </dl>
+              <p className="hint">Select a conversation.</p>
             </div>
           ) : (
             <div className="card">
-              <p className="hint">No linked contact.</p>
+              <div className="card-head">{thread.contact ? 'Contact' : 'Sender'}</div>
+              <dl className="meta">
+                <div>
+                  <dt>Name</dt>
+                  <dd>{thread.conversation.label}</dd>
+                </div>
+                {thread.conversation.peer_username && (
+                  <div>
+                    <dt>Username</dt>
+                    <dd>@{thread.conversation.peer_username}</dd>
+                  </div>
+                )}
+                {thread.conversation.peer_id !== null && (
+                  <div>
+                    <dt>Telegram ID</dt>
+                    <dd>{thread.conversation.peer_id}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt>Via account</dt>
+                  <dd>{thread.conversation.account_label}</dd>
+                </div>
+                {thread.contact && (
+                  <>
+                    <div>
+                      <dt>Phone</dt>
+                      <dd>{String(thread.contact.phone ?? '—')}</dd>
+                    </div>
+                    <div>
+                      <dt>Stage</dt>
+                      <dd>{String(thread.contact.stage ?? '')}</dd>
+                    </div>
+                    <div>
+                      <dt>Source</dt>
+                      <dd>{String(thread.contact.source ?? '—')}</dd>
+                    </div>
+                    <div>
+                      <dt>Consent</dt>
+                      <dd>{thread.contact.consent ? '✓' : '—'}</dd>
+                    </div>
+                  </>
+                )}
+              </dl>
+              {!thread.contact && (
+                <>
+                  <p className="hint">Not saved in your CRM yet.</p>
+                  <button className="btn btn-primary btn-block" onClick={saveContact}>
+                    Save as contact
+                  </button>
+                </>
+              )}
             </div>
           )}
         </aside>

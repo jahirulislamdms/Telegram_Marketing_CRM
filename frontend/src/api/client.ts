@@ -440,12 +440,25 @@ export interface Conversation {
   id: number
   contact_id: number | null
   account_id: number
+  account_label: string
   peer_id: number | null
+  peer_username: string | null
   label: string
   last_message_at: string | null
   last_message_preview: string | null
   unread_count: number
   status: string
+}
+
+export interface SavedContact {
+  id: number
+  label: string
+  username: string | null
+  phone: string | null
+  telegram_user_id: number | null
+  stage: string
+  source: string | null
+  consent: boolean
 }
 
 export interface InboxMessage {
@@ -515,6 +528,9 @@ export const inboxApi = {
     return apiFetch<Conversation[]>(`/inbox/conversations${qs ? `?${qs}` : ''}`)
   },
   getThread: (id: number) => apiFetch<Thread>(`/inbox/conversations/${id}`),
+  // Save an unlinked inbox peer as a CRM contact.
+  saveContact: (id: number) =>
+    apiFetch<SavedContact>(`/inbox/conversations/${id}/save-contact`, { method: 'POST' }),
   // Media is streamed from Telegram on demand (never stored on the VPS). Fetched
   // as an authed blob so the token stays in the header, not the URL.
   media: (messageId: number) => fetchBlob(`/inbox/messages/${messageId}/media`),

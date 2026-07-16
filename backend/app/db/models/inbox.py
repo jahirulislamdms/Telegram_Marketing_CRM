@@ -38,6 +38,8 @@ class Conversation(Base):
     # Telegram identity of the other party (for conversations without a contact row).
     peer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     peer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Stored lowercased without '@' (used by the peer panel and save-as-contact).
+    peer_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

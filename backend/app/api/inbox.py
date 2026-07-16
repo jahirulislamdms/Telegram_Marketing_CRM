@@ -89,20 +89,69 @@ async def _broadcast_conversation(db: AsyncSession, conversation) -> None:
 @router.get("/conversations", response_model=list[ConversationOut])
 async def list_conversations(
     account_id: int | None = Query(default=None),
+    account_ids: str | None = Query(
+        default=None, description="Comma-separated account ids; omit for all accounts"
+    ),
+    q: str | None = Query(default=None, description="Search peer/contact/last message"),
     conv_status: str | None = Query(default=None, alias="status"),
     unread: bool = Query(default=False),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
     agent_filter = None if _is_manager(user) else user.id
+    ids: list[int] | None = None
+    if account_ids:
+        try:
+            ids = [int(x) for x in account_ids.split(",") if x.strip()]
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="account_ids must be integers"
+            )
     conversations = await inbox_service.list_conversations(
         db,
         account_id=account_id,
+        account_ids=ids,
+        q=q,
         status=conv_status,
         unread_only=unread,
         assigned_agent_id=agent_filter,
     )
     return [await inbox_service.conversation_dict(db, c) for c in conversations]
+
+
+@router.post("/conversations/{conversation_id}/save-contact")
+async def save_contact(
+    conversation_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Save an unlinked inbox peer as a CRM contact (15.1.d)."""
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+    if conversation.contact_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Conversation already has a contact"
+        )
+    if conversation.peer_id is None and not conversation.peer_username:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No peer identity to save"
+        )
+    contact = await inbox_service.save_peer_as_contact(db, conversation)
+    await audit.record_event(
+        db, type="inbox.save_contact", actor_type="user", actor_id=user.id,
+        entity_ref=f"contact:{contact.id}",
+    )
+    await _broadcast_conversation(db, conversation)
+    return {
+        "id": contact.id,
+        "label": contact.display_label,
+        "username": contact.username,
+        "phone": contact.phone,
+        "telegram_user_id": contact.telegram_user_id,
+        "stage": contact.stage,
+        "source": contact.source,
+        "consent": contact.consent,
+    }
 
 
 @router.get("/conversations/{conversation_id}", response_model=ThreadOut)

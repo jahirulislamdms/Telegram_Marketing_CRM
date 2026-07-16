@@ -19,7 +19,9 @@ class ConversationOut(BaseModel):
     id: int
     contact_id: int | None
     account_id: int
+    account_label: str
     peer_id: int | None
+    peer_username: str | None
     label: str
     last_message_at: str | None
     last_message_preview: str | None

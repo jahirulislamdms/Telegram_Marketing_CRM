@@ -2,9 +2,11 @@
 
 from datetime import datetime, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models.account import Account
+from app.db.models.constants import CONTACT_STAGES
 from app.db.models.contact import Contact
 from app.db.models.inbox import Conversation, Message
 
@@ -50,12 +52,19 @@ async def _find_contact_by_peer(
     return None
 
 
+def _norm_username(username: str | None) -> str | None:
+    if not username:
+        return None
+    return username.lstrip("@").lower() or None
+
+
 async def get_or_create_conversation(
     db: AsyncSession,
     *,
     account_id: int,
     peer_id: int | None,
     peer_name: str | None,
+    peer_username: str | None = None,
     contact_id: int | None = None,
 ) -> Conversation:
     if peer_id is not None:
@@ -80,13 +89,20 @@ async def get_or_create_conversation(
             account_id=account_id,
             peer_id=peer_id,
             peer_name=peer_name,
+            peer_username=_norm_username(peer_username),
             contact_id=contact_id,
             status="new",
         )
         db.add(conversation)
         await db.flush()
-    elif contact_id and conversation.contact_id is None:
-        conversation.contact_id = contact_id
+    else:
+        if contact_id and conversation.contact_id is None:
+            conversation.contact_id = contact_id
+        # Backfill the peer's username/name once Telegram gives it to us.
+        if peer_username and not conversation.peer_username:
+            conversation.peer_username = _norm_username(peer_username)
+        if peer_name and not conversation.peer_name:
+            conversation.peer_name = peer_name
     return conversation
 
 
@@ -108,6 +124,7 @@ async def record_incoming(
         account_id=account_id,
         peer_id=peer_id,
         peer_name=peer_name or (contact.display_label if contact else None),
+        peer_username=peer_username,
         contact_id=contact.id if contact else None,
     )
     now = datetime.now(timezone.utc)
@@ -184,13 +201,36 @@ async def list_conversations(
     db: AsyncSession,
     *,
     account_id: int | None = None,
+    account_ids: list[int] | None = None,
+    q: str | None = None,
     status: str | None = None,
     unread_only: bool = False,
     assigned_agent_id: int | None = None,
 ) -> list[Conversation]:
     stmt = select(Conversation)
-    if account_id is not None:
+    if account_ids:
+        # Multi-account selection (all / one / many) — 15.1.e.
+        stmt = stmt.where(Conversation.account_id.in_(account_ids))
+    elif account_id is not None:
         stmt = stmt.where(Conversation.account_id == account_id)
+    if q:
+        # Search conversations within the current selection — 15.1.g.
+        like = f"%{q.strip().lower()}%"
+        matching_contacts = select(Contact.id).where(
+            or_(
+                func.lower(Contact.name).like(like),
+                func.lower(Contact.username).like(like),
+                func.lower(Contact.phone).like(like),
+            )
+        )
+        stmt = stmt.where(
+            or_(
+                func.lower(Conversation.peer_name).like(like),
+                func.lower(Conversation.peer_username).like(like),
+                func.lower(Conversation.last_message_preview).like(like),
+                Conversation.contact_id.in_(matching_contacts),
+            )
+        )
     if status:
         stmt = stmt.where(Conversation.status == status)
     if unread_only:
@@ -255,6 +295,39 @@ async def set_status(
 # ------------------------------------------------------------- serialising ---
 
 
+async def save_peer_as_contact(db: AsyncSession, conversation: Conversation) -> Contact:
+    """Create (or re-link) a CRM contact from an inbox peer — 15.1.d.
+
+    The peer messaged us first, so the contact is saved with ``consent=true`` and
+    ``source="inbox"``; its stage mirrors the conversation's status.
+    """
+    contact = await _find_contact_by_peer(db, conversation.peer_id, conversation.peer_username)
+    if contact is None:
+        username = _norm_username(conversation.peer_username)
+        stage = conversation.status if conversation.status in CONTACT_STAGES else "replied"
+        contact = Contact(
+            name=conversation.peer_name,
+            lead_type="username" if username else "phone",
+            username=username,
+            telegram_user_id=conversation.peer_id,
+            resolution_status="resolved" if conversation.peer_id else "pending",
+            source="inbox",
+            stage=stage,
+            consent=True,
+        )
+        db.add(contact)
+        await db.flush()
+    conversation.contact_id = contact.id
+    await db.commit()
+    await db.refresh(contact)
+    return contact
+
+
+async def account_label(db: AsyncSession, account_id: int) -> str:
+    account = await db.get(Account, account_id)
+    return account.label if account is not None else f"#{account_id}"
+
+
 async def contact_label(db: AsyncSession, conversation: Conversation) -> str:
     if conversation.contact_id:
         contact = await db.get(Contact, conversation.contact_id)
@@ -285,7 +358,10 @@ async def conversation_dict(db: AsyncSession, conversation: Conversation) -> dic
         "id": conversation.id,
         "contact_id": conversation.contact_id,
         "account_id": conversation.account_id,
+        # Which account owns this conversation — 15.1.f.
+        "account_label": await account_label(db, conversation.account_id),
         "peer_id": conversation.peer_id,
+        "peer_username": conversation.peer_username,
         "label": await contact_label(db, conversation),
         "last_message_at": conversation.last_message_at.isoformat()
         if conversation.last_message_at
