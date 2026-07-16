@@ -41,6 +41,25 @@ def public_username(link: str) -> str:
     return username.strip("/")
 
 
+def coerce_target(target):
+    """Normalise a send/add target for Telethon.
+
+    Telethon needs an **int** for a numeric user/chat ID; a numeric *string* is
+    otherwise misread as a username and fails with "Cannot find any entity".
+    All-digit ids (optionally a leading '-' for chats/channels) become ints;
+    ``@usernames`` and ``+phones`` stay strings. Non-string targets (ints,
+    entity objects) pass through untouched.
+    """
+    if not isinstance(target, str):
+        return target
+    t = target.strip()
+    if not t or t.startswith("@") or t.startswith("+"):
+        return t
+    if t.lstrip("-").isdigit():
+        return int(t)
+    return t
+
+
 async def join_chat(client, link: str) -> dict:
     h = invite_hash(link)
     try:
@@ -57,6 +76,7 @@ async def join_chat(client, link: str) -> dict:
 async def send_dm(client, target: str, text: str) -> dict:
     """Send a text message. Flood/peer-flood/ban warnings are returned (not raised)
     so the caller can auto-quarantine the account and pause sending."""
+    target = coerce_target(target)
     try:
         await client.send_message(target, text)
         return {"sent": True}
@@ -70,6 +90,7 @@ async def send_dm(client, target: str, text: str) -> dict:
 
 async def send_file(client, target: str, file: str, caption: str | None = None) -> dict:
     # Telethon accepts a URL, local path, or bytes for ``file``.
+    target = coerce_target(target)
     try:
         await client.send_file(target, file, caption=caption)
         return {"sent": True}
@@ -98,8 +119,8 @@ async def add_member(client, entity_id, target) -> dict:
     Returns {state: added|invited|failed, method, error?, invite_link?}.
     """
     try:
-        entity = await client.get_entity(entity_id)
-        user = await client.get_entity(target)
+        entity = await client.get_entity(coerce_target(entity_id))
+        user = await client.get_entity(coerce_target(target))
     except Exception as exc:  # noqa: BLE001
         return {"state": "failed", "detail": f"resolve: {exc}"}
 

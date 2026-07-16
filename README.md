@@ -95,12 +95,15 @@ npm run dev
 ## Build progress
 
 Progress is tracked in the spec's **§13 Build Progress Tracker** and **§14 Activity Log**.
-Current status: **all 13 phases (0–12) complete.** Phase 11 added the live
+Current status: **all 13 phases (0–12) complete and deployed.** Phase 11 added the live
 system-monitoring Dashboard, marketing analytics (funnel, per-source conversion,
 campaign/A-B, UTM attribution), and the referral program; Phase 12 added
 production hardening — HTTPS via Caddy, per-IP API rate limiting, security
 headers, a secrets guard, and nightly `pg_dump` backups (see
 [`docs/DEPLOY.md`](./docs/DEPLOY.md)).
+
+A **post-v1 update phase** (Inbox & messaging overhaul + a Backup/Restore center) is
+defined in **§15** of the spec — not yet started.
 
 First run creates an admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`
 in `.env` — change these before production. Set `TELEGRAM_API_ID` / `TELEGRAM_API_HASH`

@@ -24,10 +24,19 @@ This is the source of truth for progress. Do it as part of the same task, every 
 
 ## Current status
 
-**ALL 13 phases (0–12) are DONE — the v1 build is complete.** The only remaining
-item is the optional future phase (Telegram Mini App + Stars), out of scope for v1.
-Always confirm current status from spec **§13/§14** — they are authoritative.
+**ALL 13 phases (0–12) are DONE — the v1 build is complete** and is **deployed to the
+Hetzner VPS** (`https://crm.46-225-170-211.nip.io`, at commit `93a0f43`; see
+[[vps-deployment-target]] / the memory file). A **post-v1 update phase is now defined in
+spec §15** (15.1 Inbox & messaging overhaul + 15.2 Backup/Restore center) — **not started**.
+Always confirm current status from spec **§13/§14/§15** — they are authoritative.
 `BUILD_MEMORY.md` has the condensed per-phase record.
+
+**Maintenance workflow (post-v1, §15):** fixes/enhancements land in the **local repo +
+GitHub first**; the **VPS is updated only on an explicit "deploy" request** (never as a
+side effect of a fix). Per item: reproduce → failing test → minimal fix → verify (pytest +
+migration up/down if schema changed + `npm run build` + browser E2E) → tick §15.0 + append
+§14 → **one atomic commit per item**. Media stays streamed from Telegram (never persisted
+on the VPS); backups are Admin-only.
 
 ## Environment (this machine)
 

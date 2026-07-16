@@ -4,7 +4,10 @@ Self-contained memory so any AI/session can continue identically. Pairs with
 [`CLAUDE.md`](./CLAUDE.md) (process) and the spec's §13/§14 (authoritative progress).
 Last updated after **Phase 12 — BUILD COMPLETE (all 13 phases 0–12 done)**. Tests:
 **144 passing**. Commits `bb6d683` (P0+1) … Phase 12, all pushed to `origin/main`.
-Migrations `0001`…`0010` (Phase 12 added no DB changes).
+Migrations `0001`…`0010` (Phase 12 added no DB changes). **v1 is deployed to the Hetzner
+VPS** (`https://crm.46-225-170-211.nip.io`, commit `93a0f43`). A **post-v1 update phase is
+defined in spec §15** (Inbox & messaging overhaul + Backup/Restore center) — **not started**;
+work goes to local+GitHub first, VPS only on explicit request.
 
 ## Tech stack
 

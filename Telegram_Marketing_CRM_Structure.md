@@ -498,3 +498,192 @@ Append-only record of updates (newest at the bottom).
 - **2026-07-15** — **Phase 11 (Dashboard, analytics + referral) built & verified.** Model `referrals` (referrer_subscriber_id → bot_subscribers, unique `invite_code`, `invited_count`, `rewarded`) — Alembic `0010`. Service `services/referrals.py`: `get_or_create_referral` (one per subscriber, random `token_hex` code), `record_referral`/`maybe_record_from_payload` (credit a `ref_<code>` bot-start payload), `set_rewarded`, and a `leaderboard` (referrals ⋈ subscriber ⋈ bot, by invited_count). Service `services/analytics.py`: **system-monitoring** `dashboard_snapshot` (account counts by status, today's sends-vs-caps, sender+campaign **queue depth**, proxy-pool health ok/dead/assigned/free, **throughput** = out-messages 24h/1h [time-windowed **in Python** for SQLite/PG portability], **running campaigns** with per-campaign progress, recent quarantine/flood **events**) plus marketing analytics — `funnel` (cumulative reached counts contacted→customer + conversion %), `per_source_conversion`, `per_account_health`, `campaign_summary` (per-campaign A/B rollup), and `utm_attribution` (bot subscribers grouped by UTM deep-link source, with joined/customer conversions). Schemas `schemas/analytics.py` + API `api/analytics.py` (Admin/Manager): `GET /api/analytics/dashboard`, `POST …/dashboard/broadcast` (computes a snapshot and pushes a `dashboard` event over the inbox WS — reuses `realtime.publish`), `GET /api/analytics` (overview), and referral endpoints (`GET /referrals` leaderboard, `POST /referrals` create-for-subscriber → deep-link, `POST /referrals/record`, `POST /referrals/{id}/reward`). Celery beat `analytics.dashboard_tick` (every 15s) broadcasts the snapshot. Frontend: **Dashboard** rebuilt as live system monitoring (account-health tiles, throughput, queue, caps progress bar, proxy pool, running-campaign progress, error feed; subscribes to the inbox WS for `dashboard` push → **Live** indicator, with a 15s poll fallback; agents get a simplified home) and a new **Analytics** page (funnel bars, per-source table, campaign/A-B table, UTM table, referral leaderboard with create-link / record / reward tools) + nav + route (Admin/Manager). **Verified:** 131 pytest tests (10 new: dashboard shape, account-count reflection, **`dashboard` WebSocket broadcast**, funnel + per-source conversion math, per-account health, UTM attribution, referral create/record/reward/leaderboard incl. `ref_`-prefixed codes + idempotent create, unknown-code/subscriber 404s, agent 403); Alembic `0010` up/down on SQLite; frontend builds (`tsc --noEmit` + vite); **full browser E2E with a seeded SQLite DB** (in-process WS, Redis-down) — logged in, the **Dashboard showed live system state** (4 accounts: 2 active/1 warming/1 quarantined, sends 21/95 caps = 22.1%, queue 2, proxy pool 3 ok/1 dead/1 assigned/3 free, running "Spring Promo" 2/4, a quarantine event), a `dashboard` broadcast flipped the indicator to **Live** and refreshed the snapshot, and **Analytics** showed the funnel (28.6% contacted→customer), per-source conversion (online_store 16.7% / offline_store 33.3%), the A/B campaign row (4 targets, 2 sent), UTM attribution (instagram 2 / direct 1), and the **referral leaderboard** — then a UI **record** bumped the top referrer 3→4 invites and **Reward** flipped it to ✓. No console errors. Not live-tested: real Celery-beat push (needs Redis + worker) and real UTM/referral traffic from live bots.
 - **2026-07-14** — **Phase 10 (Multi-bot console) built & verified.** Models `bots`, `bot_subscribers`, `bot_conversations`, `bot_messages` (Alembic `0009`). Engine hosts **aiogram v3** bots alongside Telethon: `engine/bots_manager.py` (`BotManager` — add-by-token start/stop polling in a background task, `/start` handler captures subscriber + **UTM deep-link payload** and message handler publishes to Redis `bot:incoming`/`bot:start`; send/post/get_me); engine routes `/bots/{start,stop,info,send,post}` (aiogram lazy-imported so the engine boots without it) + `engine_client`. Backend: `services/bots.py` (CRUD, start/stop, subscriber upsert, bot inbox get/thread/reply, **broadcast** to subscribers, **post to channel** text+image, `deep_link`), `bot_consumer.py` (Redis `bot:incoming`/`bot:start` → DB → WS `bot_message`), `/api/bots/*` (Admin/Manager: list/add/start/stop/remove, subscribers, conversations/thread/read/reply, send/post/broadcast, deep-link, dev simulate-incoming). Reuses the realtime WS (`/ws/inbox`) with a `bot_message` event type. Frontend: **Bots** page (add by token, list, start/stop/remove, counts, opt-in deep-link, **bot inbox** two-pane with live updates + reply, post-to-channel, broadcast). **Verified:** 121 pytest tests (8 new: add/start/stop, incoming→subscriber+conversation+UTM, reply via bot, broadcast, post-to-channel, deep-link, **WebSocket bot_message**, agent 403); Alembic `0009` up/down on SQLite; engine boots with bot routes; frontend builds; **full browser E2E with a stub engine** — added **two bots from pasted tokens**, started one (running + deep-link), simulated an incoming message that appeared **live** in the bot inbox, **replied** (staff→user), and **posted text+image to a channel** ("Posted to channel."). No console errors. Not live-tested: real BotFather bots / real Telegram delivery.
 - **2026-07-15** — **Phase 12 (Hardening & deploy) built & verified — BUILD COMPLETE (all 13 phases 0–12 done).** No DB changes. **API rate limiting:** `app/ratelimit.py` (fixed-window per-client limiter, Redis-backed `INCR`+TTL with a thread-safe in-process fallback) + `app/middleware.py` `RateLimitMiddleware` (limits `/api/*` per client IP — honors `X-Forwarded-For` first hop; **tighter cap on `/api/auth/login|refresh`** for brute-force; exempts `OPTIONS`, `/health`, `/ws`; returns **429 + `Retry-After` + `X-RateLimit-*`**). **Security headers:** `SecurityHeadersMiddleware` (nosniff, `X-Frame-Options: DENY`, Referrer-Policy, Permissions-Policy, HSTS) on every response, plus the same set at the **Caddy** layer (covers the SPA) with `-Server`. Middleware registered before CORS so CORS stays outermost and stamps 429s. **Secrets guard:** `settings.insecure_production_defaults()` + a **startup check that refuses to boot in `ENVIRONMENT=production`** on default `SECRET_KEY`/admin password/DB password/`CORS=*`/`DEBUG`; new CLI `python -m app.cli generate-secret` and `prod-check` (prod compose runs `prod-check` before uvicorn). **Readiness:** `/health/ready` now checks Postgres (required → 503 if down) and Redis (reported, non-fatal). **Backups:** `scripts/backup.sh` (`pg_dump`|gzip + retention prune), `scripts/restore.sh`, `scripts/backup-loop.sh`, and a **`backup` service** in `docker-compose.prod.yml` (nightly, rotates, writes `./backups`). Config knobs added to `app/config.py` + `.env.example` (rate limits, security headers, HSTS, backup interval/retention). **Docs:** new `docs/DEPLOY.md` (Ubuntu VPS + Windows install, DNS/HTTPS, firewall, backup/restore, security checklist, troubleshooting) + README updated. **Verified:** 144 pytest tests (13 new: security headers on 200/401, rate-limit 429 + `Retry-After` + per-IP isolation + allowed-request annotation + `/health` exempt + disabled-by-default passthrough, readiness DB-ok/Redis-down, insecure-defaults + secure-config helper, `generate-secret`/`prod-check` CLI); frontend still builds (no FE changes); compose files YAML-lint clean (prod adds `backup`); backup/restore/loop scripts pass `sh -n`; **live-server verification** (real uvicorn + browser, seeded DB, `REDIS_HOST=127.0.0.1`, login limit=4) — `/health` returned all 5 security headers, `/health/ready` = `{database: ok, redis: down, status: ready}` (200), login **401×4 then 429** with `Retry-After: 53` + `X-RateLimit-*`, a **valid login returned 200**, and the **browser logged in and loaded the live Dashboard** through the middleware with `/api/*` carrying `X-RateLimit-Limit: 240` and no console errors. Not live-tested (no Docker/Redis/Postgres locally): `docker compose up` on a real VPS, Caddy ACME cert issuance, and the scheduled `backup` service run — code/compose/scripts complete and validated.
+- **2026-07-16** — **§15.1.a fixed — the "engine 500" on every message send.** Root cause: a peer's numeric Telegram user id was passed to the engine as a *string* (e.g. `"6430475606"`); Telethon reads an all-digit string as a **username** lookup → `ValueError: Cannot find any entity`, surfaced as engine `500` on **every** send (inbox reply, Contacts message, Sender, Campaigns). Fix: `engine/actions.py` new `coerce_target()` converts all-digit ids (incl. a leading `-` for chats/channels) to `int`, while leaving `@usernames`/`+phones` as strings; applied in `send_dm`, `send_file`, and `add_member`. Regression unit tests `tests/test_engine_actions.py` (incl. the exact production id `6430475606`). Verified: **149** pytest pass; engine image rebuilt and **redeployed to the VPS**. First fix of the §15 update phase; local → GitHub → VPS.
+
+---
+
+## 15. Post-v1 Update Phase — Bug Fixes & Enhancements
+
+**Status: DEFINED (not started).** v1 (phases 0–12) is complete and **deployed to the
+Hetzner VPS** at commit `93a0f43` (`https://crm.46-225-170-211.nip.io`, nginx-fronted,
+CRM in Docker under `/opt/telegram-crm`).
+
+**Process rules for this phase (do not skip):**
+- Work lands in the **local repo + GitHub first**. The **VPS is updated only on an
+  explicit "deploy" request** — never automatically as part of a fix.
+- Each item follows the safe loop: **reproduce → add a failing test → minimal, localized
+  fix → full verification (`pytest` all green + migration up/down if the schema changed +
+  `npm run build` + a browser E2E for UI-facing changes) → tick the tracker below → append
+  a dated note to §14 → one atomic commit per item** (so any change can be reverted alone).
+- **Architecture invariants still hold:** only the Telegram Engine Service owns Telethon
+  clients; the API/worker call it via `engine_client`. Media is streamed **from Telegram
+  on demand, never persisted on the VPS**. Backups are **Admin-only**.
+
+### 15.0 Progress tracker (tick as completed)
+
+- [ ] **15.1 Inbox & messaging overhaul**
+  - [x] 15.1.a **Fix (critical):** sending a message fails everywhere with `engine error 500: Internal Server Error` — fixed 2026-07-16 (numeric-id target coerced to int; see §14)
+  - [ ] 15.1.b Inbound media rendering — image / video / gif / sticker / file / voice, shown **from Telegram** (not stored on the VPS)
+  - [ ] 15.1.c Outbound media & voice — send image / video / file / voice from the chat, uploaded **directly to Telegram** (not stored on the VPS)
+  - [ ] 15.1.d Contact panel (right) shows the peer's details; chat header shows the peer name; **"Save as contact"** for a message from an unsaved peer
+  - [ ] 15.1.e Multi-account inbox selector — **all / one / many** accounts, with a **searchable account picker**
+  - [ ] 15.1.f Show **which account** owns each conversation (list + chat)
+  - [ ] 15.1.g **Conversation search** box, scoped to the selected account(s)
+  - [ ] 15.1.h **Conversation retention** — history stays in the CRM even if the peer deletes it on Telegram (text kept; media, not stored, may become unavailable)
+  - [ ] 15.1.i **Conversation actions** — **Archive** and **Delete** a conversation from the inbox
+  - [ ] 15.1.j **Archive folder** — an Archive view listing all archived chats (open / unarchive)
+- [ ] **15.2 Backup & Restore center**
+  - [ ] 15.2.a Full backup (Postgres data + Telethon `sessions/` + settings) with **selectable scope**, default = everything
+  - [ ] 15.2.b **Restore** from a backup
+  - [ ] 15.2.c **Downloadable** backups; keep the **last 5**
+  - [ ] 15.2.d **Delete** a backup from the server
+  - [ ] 15.2.e **Auto-backup on/off** + schedule (daily, or every N days)
+
+### 15.1 Inbox & messaging overhaul
+
+Builds on the existing inbox (models `conversations`/`messages` — migration `0005`,
+`engine/listener.py`, `inbox_consumer.py`, `services/inbox.py`, `api/inbox.py`,
+`frontend/src/pages/Inbox.tsx`, `useInboxSocket`). The `messages` table already has
+`type` (text/image/voice/link) and `media_ref` fields to extend.
+
+**15.1.a — Sending is broken (fix first, highest priority).**
+Right now sending a reply from the Inbox — and sending from any account, from anywhere
+(Contacts message, Sender, Campaigns) — fails with **`engine error 500: Internal Server
+Error`**. This blocks the product's core function, so it is the first fix.
+- *Reproduce:* open a conversation → type a reply → **Send** → observe the 500. Also try
+  Contacts → message an account. Capture the engine traceback (`docker compose logs engine`)
+  and the backend traceback.
+- *Fix:* trace the outbound path (`api/inbox` → `services/inbox` → `engine_client.send_message`
+  → engine `send_dm`) and repair the actual error; add a regression test that drives a send
+  with the engine mocked to assert a 200 + recorded outgoing message, and (where possible)
+  a live smoke send on the VPS after deploy.
+- *Done when:* a reply sends successfully from the Inbox and lands in the thread; sending
+  from Contacts/Sender/Campaigns works; no 500s.
+
+**15.1.b — Show inbound media (image / video / gif / sticker / voice / file).**
+Incoming non-text messages currently can't be seen. Render them inline in the thread.
+- Media must be **served from Telegram on demand — not saved on the VPS.** Approach: the
+  engine downloads the media bytes for a given message on request and **streams** them back
+  through a backend endpoint (e.g. `GET /api/inbox/messages/{id}/media`) that proxies the
+  engine; nothing is written to persistent VPS storage (transient in-memory/temp only, then
+  discarded; a short-lived cache is acceptable but not required).
+- The listener (`engine/listener.py`) must detect the media type on incoming messages and
+  record `type` + a Telegram file reference in `media_ref` (not a local path).
+- Rendering: images/gifs as `<img>`, video as `<video>`, voice as an inline audio player
+  (waveform/duration is a nice-to-have), files as a download chip with name/size. Animated
+  stickers (`.tgs`/Lottie) may render as a **static preview** initially — full animation is
+  optional.
+- *Done when:* an inbound photo, video, gif, sticker, voice note, and document each display
+  (or are playable/downloadable) in the conversation, fetched from Telegram with **no media
+  file written to the VPS**.
+
+**15.1.c — Send media & voice from the chat.**
+The composer must send image / video / file / **voice message**, like normal Telegram.
+- Outbound media is uploaded **directly to Telegram** via the engine (`send_file` already
+  exists) and **not kept on the VPS** (a transient temp during upload is discarded).
+- Voice: record in the browser (MediaRecorder → opus/ogg) and send as a Telegram **voice
+  note**; files/images/videos via an attach button.
+- Sent media appears in the same thread (and, like text, is consistent with campaign/manual
+  history).
+- *Done when:* staff can attach & send an image, a video, a document, and record & send a
+  voice message from a conversation, all delivered through Telegram with nothing persisted
+  on the VPS.
+
+**15.1.d — Contact panel + save-from-inbox.**
+The right-hand panel currently says "No linked contact" even when a real peer is messaging.
+- Right panel shows the **peer's details** (name, @username, phone, Telegram user id, and
+  the linked CRM contact's stage/tags/history if one exists).
+- The **chat header shows the peer's name** (falling back to @username, then id).
+- When a message arrives from a peer with **no CRM contact**, offer **"Save as contact"**
+  that creates a `Contact` from the peer (pre-filled name/username/phone; note the consent
+  model — an inbound peer initiated contact, so saving with `consent=true` is defensible and
+  should be recorded with `source="inbox"`).
+- *Done when:* the right panel shows peer/contact details, the header shows the name, and an
+  unsaved inbound peer can be saved as a contact in one click and immediately links to the
+  conversation.
+
+**15.1.e / 15.1.f / 15.1.g — Multi-account inbox controls.**
+The inbox needs first-class multi-account handling:
+- **Account selector** to choose whose inbox to show: **all accounts**, a **single account**,
+  or **several accounts**, driven by a **searchable account picker** (search accounts by
+  label to select them). Backend: `GET /api/inbox/conversations?account_ids=…`.
+- Each conversation shows **which account** it belongs to (account label in the list item,
+  and in the chat header / right panel — "conversation via <account>").
+- A separate **conversation search** box filters conversations (by peer name / last-message)
+  **within the selected account(s)**. Backend: a `q` query param.
+- *Done when:* the operator can filter the inbox to all / one / many accounts via a
+  searchable picker, see which account each conversation uses, and search conversations
+  within the current selection.
+
+**15.1.h — Conversation retention (never lose history).**
+All conversations & messages are **kept in the CRM as the system of record** — they **remain
+even if the peer deletes them on Telegram** (the CRM holds its own copy). Because media is
+not stored on the VPS (§15.1.b), media the peer later deletes on Telegram may become
+unavailable; in that case keep the message record and any text and show a **"media no longer
+available"** placeholder. A Telegram-side deletion must **never** cascade into removing CRM
+records.
+- *Done when:* a message still appears in the CRM thread after being deleted on Telegram
+  (text preserved; unavailable media shown as a placeholder).
+
+**15.1.i — Conversation actions (Archive / Delete).**
+Each conversation gets an **action menu** in the inbox, with at least **Archive** and
+**Delete**:
+- **Archive** — flag the conversation archived (an `archived` flag, kept independent of the
+  pipeline stage/status; new migration `0011`), removing it from the main inbox list **without
+  losing history**.
+- **Delete** — an operator-initiated removal of the conversation (and its messages) from the
+  CRM; **destructive → requires a confirm step.** This is distinct from a *peer* deleting on
+  Telegram, which never removes CRM data (see 15.1.h).
+- *Done when:* an operator can archive or delete a conversation from the inbox, delete asks
+  for confirmation, and neither affects the peer's Telegram.
+
+**15.1.j — Archive folder.**
+The inbox has an **Archive** view/folder listing **all archived conversations**; from it a
+chat can be opened and **unarchived** (returned to the main inbox). The main inbox list shows
+only non-archived chats by default.
+- *Done when:* archiving moves a chat out of the main list into the Archive folder, archived
+  chats are viewable there, and they can be unarchived back to the main inbox.
+
+### 15.2 Backup & Restore center
+
+Extends the Phase-12 headless backup (`scripts/backup.sh`, `backup-loop.sh`, the `backup`
+compose service, retention) into an **Admin-only, UI-driven** backup manager. A **full**
+backup must capture everything needed to reconstitute the system:
+- **Postgres data** (all tables — settings, accounts, contacts, conversations, messages,
+  campaigns, bots, referrals, …) via `pg_dump`.
+- **Telethon `sessions/`** files — *required* so restored accounts stay logged in (a DB-only
+  backup would lose the live account sessions).
+- **Settings / config** (the tunable app settings; the raw `.env` secrets are excluded from
+  downloads by default for safety — call this out in the UI).
+- Media is **not** included (it is never stored on the VPS).
+
+**15.2.a — Backup with selectable scope.**
+- A backup screen (Settings or a dedicated **Backup** page) with **checkboxes to choose
+  scope** (Database, Sessions/Accounts, Settings). **Default = everything.**
+- Creating a backup produces a single archive on the server (e.g. `/backups/…​.tar.gz`).
+- *Done when:* an Admin can trigger a backup of the selected components and it appears in the
+  backup list.
+
+**15.2.b — Restore.**
+- Restore from a stored (or uploaded) backup archive. Must warn that restore is **disruptive**
+  (services quiesced during DB/session restore) and require confirmation.
+- *Done when:* restoring a backup returns the system to that backup's state (data + logged-in
+  accounts) after a controlled restart.
+
+**15.2.c / 15.2.d — Manage backups.**
+- List backups with timestamp/size/scope; **download** an archive (Admin-only, over HTTPS —
+  archives contain sessions = full account access, so downloads must be authenticated);
+  **keep the last 5** (older ones auto-pruned by count); **delete** a backup from the server.
+- *Done when:* the last 5 backups are listed, each can be downloaded and deleted, and a 6th
+  backup prunes the oldest.
+
+**15.2.e — Auto-backup schedule.**
+- **On/off** toggle for automatic backups, plus a schedule: **daily** or **every N days**
+  (configurable). Replaces the fixed `BACKUP_INTERVAL_SECONDS` with a UI-editable setting;
+  the `backup` service / a Celery beat task honors it.
+- *Done when:* auto-backup can be turned on/off and set to run daily or every N days, and the
+  schedule is respected.
+
+> **Security note for §15.2:** backup archives include Telethon session files and full DB
+> data — treat them as top-secret. All backup/restore/download/delete endpoints are
+> **Admin-only**, served over HTTPS, and never exposed publicly.
