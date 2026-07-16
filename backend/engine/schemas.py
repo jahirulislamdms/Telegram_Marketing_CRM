@@ -73,6 +73,15 @@ class DownloadMedia(Credentials):
     message_id: int
 
 
+class SendMedia(Credentials):
+    target: str
+    data_b64: str
+    filename: str | None = None
+    mime: str | None = None
+    kind: str = "file"
+    caption: str | None = None
+
+
 # ---- Bots (Phase 10) ----
 
 

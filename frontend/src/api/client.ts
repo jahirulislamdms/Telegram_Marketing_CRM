@@ -489,6 +489,26 @@ async function fetchBlob(path: string): Promise<Blob> {
   return res.blob()
 }
 
+async function multipartForm<T>(path: string, form: FormData): Promise<T> {
+  const { accessToken } = useAuth.getState()
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    body: form,
+  })
+  if (!res.ok) {
+    let detail = res.statusText
+    try {
+      const b = await res.json()
+      if (b?.detail) detail = typeof b.detail === 'string' ? b.detail : JSON.stringify(b.detail)
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return (await res.json()) as T
+}
+
 export const inboxApi = {
   listConversations: (params: Record<string, string> = {}) => {
     const qs = new URLSearchParams(params).toString()
@@ -498,6 +518,14 @@ export const inboxApi = {
   // Media is streamed from Telegram on demand (never stored on the VPS). Fetched
   // as an authed blob so the token stays in the header, not the URL.
   media: (messageId: number) => fetchBlob(`/inbox/messages/${messageId}/media`),
+  // Send media/voice from the composer — uploaded straight to Telegram (not stored).
+  sendMedia: (id: number, file: File, kind: string, caption?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('kind', kind)
+    if (caption) form.append('caption', caption)
+    return multipartForm<InboxMessage>(`/inbox/conversations/${id}/send-media`, form)
+  },
   markRead: (id: number) =>
     apiFetch<Conversation>(`/inbox/conversations/${id}/read`, { method: 'POST' }),
   setStatus: (id: number, status: ConversationStatus) =>

@@ -129,3 +129,72 @@ def test_media_endpoint_404_for_text_message(client, admin_token, monkeypatch):
     mid = _last_message(client, admin_token, r.json()["id"])["id"]
     resp = client.get(f"/api/inbox/messages/{mid}/media", headers=_auth(admin_token))
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------- outbound (15.1.c) -
+
+
+def test_send_media_outbound_records_and_refetchable(client, admin_token, monkeypatch):
+    aid = _logged_in_account(client, admin_token, monkeypatch, label="Out Media")
+    conv_id = _simulate(client, admin_token, aid, peer_id=700001, text="hi").json()["id"]
+
+    captured = {}
+
+    async def _sm(account, proxy, target, data, filename, mime, kind, caption):
+        captured.update(target=str(target), kind=kind, size=len(data), caption=caption)
+        return {"sent": True, "message_id": 4242}
+
+    monkeypatch.setattr(engine_client, "send_media", _sm)
+    resp = client.post(
+        f"/api/inbox/conversations/{conv_id}/send-media",
+        headers=_auth(admin_token),
+        files={"file": ("photo.png", b"\x89PNG-bytes", "image/png")},
+        data={"kind": "image", "caption": "look!"},
+    )
+    assert resp.status_code == 200, resp.text
+    m = resp.json()
+    assert m["type"] == "image" and m["direction"] == "out"
+    assert captured == {"target": "700001", "kind": "image", "size": 10, "caption": "look!"}
+
+    last = _last_message(client, admin_token, conv_id)
+    assert last["type"] == "image" and last["direction"] == "out"
+    assert json.loads(last["media_ref"])["name"] == "photo.png"
+
+    # The outgoing media is re-fetchable — proving tg_message_id (4242) was stored.
+    async def _dl(account, proxy, peer, message_id):
+        assert message_id == 4242
+        return {"bytes": b"IMGBYTES", "mime": "image/png", "name": "photo.png"}
+
+    monkeypatch.setattr(engine_client, "download_media", _dl)
+    media = client.get(f"/api/inbox/messages/{m['id']}/media", headers=_auth(admin_token))
+    assert media.status_code == 200
+    assert media.content == b"IMGBYTES"
+
+
+def test_send_media_flood_returns_502(client, admin_token, monkeypatch):
+    aid = _logged_in_account(client, admin_token, monkeypatch, label="Out Flood")
+    conv_id = _simulate(client, admin_token, aid, peer_id=700002, text="hi").json()["id"]
+
+    async def _sm(*a, **k):
+        return {"sent": False, "error": "peerflood"}
+
+    monkeypatch.setattr(engine_client, "send_media", _sm)
+    resp = client.post(
+        f"/api/inbox/conversations/{conv_id}/send-media",
+        headers=_auth(admin_token),
+        files={"file": ("v.mp4", b"videodata", "video/mp4")},
+        data={"kind": "video"},
+    )
+    assert resp.status_code == 502
+
+
+def test_send_media_empty_file_400(client, admin_token, monkeypatch):
+    aid = _logged_in_account(client, admin_token, monkeypatch, label="Out Empty")
+    conv_id = _simulate(client, admin_token, aid, peer_id=700003, text="hi").json()["id"]
+    resp = client.post(
+        f"/api/inbox/conversations/{conv_id}/send-media",
+        headers=_auth(admin_token),
+        files={"file": ("empty.bin", b"", "application/octet-stream")},
+        data={"kind": "file"},
+    )
+    assert resp.status_code == 400

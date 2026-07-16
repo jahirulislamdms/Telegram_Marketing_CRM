@@ -1138,6 +1138,22 @@ select:focus {
   color: var(--muted);
 }
 
+.icon-btn--recording {
+  color: var(--accent-contrast);
+  background: var(--err);
+  border-color: var(--err);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

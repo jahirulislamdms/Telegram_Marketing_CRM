@@ -1,11 +1,16 @@
 """Unified live inbox: conversations, threads, replies, status, and the WS stream."""
 
+import json
+
 from fastapi import (
     APIRouter,
     Depends,
+    File,
+    Form,
     HTTPException,
     Query,
     Response,
+    UploadFile,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -250,6 +255,74 @@ async def send_reply(
         type=payload.type,
         body=payload.body,
         media_ref=payload.media_url,
+    )
+    await _broadcast_message(db, conversation, message)
+    return MessageOut(**inbox_service.message_dict(message))
+
+
+MAX_MEDIA_BYTES = 25 * 1024 * 1024
+_MEDIA_KINDS = ("image", "video", "voice", "audio", "file")
+
+
+@router.post("/conversations/{conversation_id}/send-media", response_model=MessageOut)
+async def send_media(
+    conversation_id: int,
+    file: UploadFile = File(...),
+    kind: str = Form("file"),
+    caption: str | None = Form(None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessageOut:
+    """Send image/video/file/voice from the composer, uploaded straight to Telegram.
+
+    The uploaded bytes are forwarded to the engine and never written to the VPS
+    disk. The outgoing message is recorded and re-rendered from Telegram like any
+    other media message.
+    """
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+
+    account = await account_service.get_by_id(db, conversation.account_id)
+    if account is None or not account.session_ref:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Conversation's account is not logged in",
+        )
+    target = await inbox_service.reply_target(db, conversation)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No reachable recipient")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file")
+    if len(data) > MAX_MEDIA_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 25 MB)")
+    if kind not in _MEDIA_KINDS:
+        kind = "file"
+
+    proxy = await db.get(Proxy, account.proxy_id) if account.proxy_id else None
+    try:
+        result = await engine_client.send_media(
+            account, proxy, target, data, file.filename, file.content_type, kind, caption
+        )
+    except engine_client.EngineUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    if not result.get("sent", False):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"send failed: {result.get('error')}",
+        )
+
+    meta = {"kind": kind, "mime": file.content_type, "name": file.filename, "size": len(data)}
+    message = await inbox_service.record_outgoing(
+        db,
+        conversation=conversation,
+        account_id=account.id,
+        agent_id=user.id,
+        type=kind,
+        body=caption,
+        media_ref=json.dumps(meta),
+        tg_message_id=result.get("message_id"),
     )
     await _broadcast_message(db, conversation, message)
     return MessageOut(**inbox_service.message_dict(message))

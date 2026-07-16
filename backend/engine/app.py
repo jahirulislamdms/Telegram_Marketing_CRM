@@ -6,6 +6,7 @@ here so that sessions have a single owner.
 """
 
 import asyncio
+import base64
 import contextlib
 import logging
 from contextlib import asynccontextmanager
@@ -32,6 +33,7 @@ from engine.schemas import (
     ResolvePhone,
     ResolveUsername,
     SendFile,
+    SendMedia,
     SendRequest,
     SessionImport,
 )
@@ -259,6 +261,22 @@ async def send_file(account_id: int, body: SendFile) -> dict:
             body.target,
             body.file,
             body.caption,
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/send-media")
+async def send_media(account_id: int, body: SendMedia) -> dict:
+    """Upload media bytes (base64) straight to Telegram — nothing stored on disk."""
+    try:
+        data = base64.b64decode(body.data_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid media payload")
+    try:
+        return await _manager().send_media(
+            account_id, body.api_id, body.api_hash, _proxy(body),
+            body.target, data, body.filename, body.mime, body.kind, body.caption,
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

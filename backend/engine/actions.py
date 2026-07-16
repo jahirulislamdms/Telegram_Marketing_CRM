@@ -1,5 +1,6 @@
 """Telethon actions used by warmup (and later phases): join chats, send messages."""
 
+import io
 import logging
 
 from telethon.errors import (
@@ -98,6 +99,48 @@ async def send_file(client, target: str, file: str, caption: str | None = None) 
         return {"sent": False, "error": "flood", "seconds": exc.seconds}
     except PeerFloodError:
         return {"sent": False, "error": "peerflood"}
+
+
+_DEFAULT_MEDIA_NAME = {
+    "image": "photo.jpg",
+    "video": "video.mp4",
+    "voice": "voice.ogg",
+    "audio": "audio.mp3",
+    "file": "file.bin",
+}
+
+
+async def send_media(
+    client, target, data: bytes, filename: str | None, mime: str | None,
+    kind: str, caption: str | None,
+) -> dict:
+    """Upload media bytes to Telegram and send them to ``target``.
+
+    The bytes come straight from the operator's browser and are never written to
+    disk. Telethon infers the media type from the (in-memory) file's name; per-kind
+    flags mark voice notes, streamable video, and forced documents.
+    """
+    target = coerce_target(target)
+    bio = io.BytesIO(data)
+    bio.name = filename or _DEFAULT_MEDIA_NAME.get(kind, "file.bin")
+    kwargs: dict = {}
+    if caption:
+        kwargs["caption"] = caption
+    if kind == "voice":
+        kwargs["voice_note"] = True
+    elif kind == "video":
+        kwargs["supports_streaming"] = True
+    elif kind == "file":
+        kwargs["force_document"] = True
+    try:
+        msg = await client.send_file(target, bio, **kwargs)
+        return {"sent": True, "message_id": getattr(msg, "id", None)}
+    except FloodWaitError as exc:
+        return {"sent": False, "error": "flood", "seconds": exc.seconds}
+    except PeerFloodError:
+        return {"sent": False, "error": "peerflood"}
+    except UserBannedInChannelError:
+        return {"sent": False, "error": "banned"}
 
 
 async def download_media(client, peer, message_id) -> dict | None:

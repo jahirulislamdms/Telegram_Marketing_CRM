@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   ApiError,
   CONVERSATION_STATUSES,
@@ -131,8 +131,12 @@ export default function Inbox() {
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [recording, setRecording] = useState(false)
   const selectedRef = useRef<number | null>(null)
   selectedRef.current = selectedId
+  const fileRef = useRef<HTMLInputElement>(null)
+  const recRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
 
   const loadConversations = useCallback(async () => {
     try {
@@ -194,6 +198,64 @@ export default function Inbox() {
       setSending(false)
     }
   }
+
+  const doSendMedia = async (file: File, kind: string, caption: string) => {
+    if (!selectedId) return
+    setSending(true)
+    setError(null)
+    try {
+      await inboxApi.sendMedia(selectedId, file, kind, caption)
+      setText('')
+      // The outgoing media arrives via the WebSocket broadcast.
+    } catch (e) {
+      setError(errMsg(e))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const onAttach = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    if (f) {
+      const m = f.type
+      const kind = m.startsWith('image/')
+        ? 'image'
+        : m.startsWith('video/')
+          ? 'video'
+          : m.startsWith('audio/')
+            ? 'audio'
+            : 'file'
+      void doSendMedia(f, kind, text)
+    }
+    e.target.value = ''
+  }
+
+  const startRecording = async () => {
+    setError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+        ? 'audio/ogg;codecs=opus'
+        : 'audio/webm;codecs=opus'
+      const rec = new MediaRecorder(stream, { mimeType })
+      chunksRef.current = []
+      rec.ondataavailable = (ev) => ev.data.size > 0 && chunksRef.current.push(ev.data)
+      rec.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const blob = new Blob(chunksRef.current, { type: mimeType })
+        const file = new File([blob], 'voice.ogg', { type: mimeType })
+        setRecording(false)
+        void doSendMedia(file, 'voice', '')
+      }
+      recRef.current = rec
+      rec.start()
+      setRecording(true)
+    } catch {
+      setError('Microphone unavailable or permission denied.')
+    }
+  }
+
+  const stopRecording = () => recRef.current?.stop()
 
   const changeStatus = async (status: ConversationStatus) => {
     if (!selectedId) return
@@ -315,10 +377,33 @@ export default function Inbox() {
               </div>
               <div className="composer">
                 <input
-                  placeholder="Type a reply…"
+                  ref={fileRef}
+                  type="file"
+                  style={{ display: 'none' }}
+                  onChange={onAttach}
+                />
+                <button
+                  className="icon-btn"
+                  title="Attach image / video / file"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={sending || recording}
+                >
+                  📎
+                </button>
+                <button
+                  className={`icon-btn${recording ? ' icon-btn--recording' : ''}`}
+                  title={recording ? 'Stop & send voice' : 'Record voice message'}
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={sending}
+                >
+                  {recording ? '⏹' : '🎤'}
+                </button>
+                <input
+                  placeholder={recording ? 'Recording… tap ⏹ to send' : 'Type a reply…'}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && send()}
+                  disabled={recording}
                 />
                 <button className="btn btn-primary" onClick={send} disabled={sending || !text.trim()}>
                   Send

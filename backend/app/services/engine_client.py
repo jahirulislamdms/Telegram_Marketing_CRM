@@ -4,6 +4,7 @@ The backend never opens a Telethon client itself — it calls the engine over th
 internal Docker network. All Telegram side effects happen in the engine process.
 """
 
+import base64
 from typing import Any
 
 import httpx
@@ -202,6 +203,21 @@ async def send_file(
     body["file"] = file
     body["caption"] = caption
     return await _request("POST", f"/clients/{account.id}/send-file", json=body)
+
+
+async def send_media(
+    account: Account, proxy: Proxy | None, target, data: bytes,
+    filename: str | None, mime: str | None, kind: str, caption: str | None,
+) -> dict:
+    """Upload media bytes to the engine (base64) → Telegram. Nothing stored on disk."""
+    body = credentials_payload(account, proxy)
+    body["target"] = str(target)
+    body["data_b64"] = base64.b64encode(data).decode("ascii")
+    body["filename"] = filename
+    body["mime"] = mime
+    body["kind"] = kind
+    body["caption"] = caption
+    return await _request("POST", f"/clients/{account.id}/send-media", json=body)
 
 
 async def download_media(
