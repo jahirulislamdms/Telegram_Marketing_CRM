@@ -1034,6 +1034,52 @@ export interface ReferralDetail {
   deep_link: string
 }
 
+// ---- Backup & Restore center (Phase 15.2) ----
+
+export const BACKUP_SCOPES = ['database', 'sessions', 'settings'] as const
+export type BackupScope = (typeof BACKUP_SCOPES)[number]
+
+export interface BackupItem {
+  name: string
+  size: number
+  created_at: string
+  scope: string[]
+  app_version: string | null
+  db_file: string | null
+}
+
+export interface BackupSettings {
+  enabled: boolean
+  interval_days: number
+  scope: string[]
+}
+
+export const backupsApi = {
+  list: () => apiFetch<BackupItem[]>('/backups'),
+  create: (scope: string[]) =>
+    apiFetch<BackupItem>('/backups', { method: 'POST', body: JSON.stringify({ scope }) }),
+  remove: (name: string) =>
+    apiFetch<void>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  restore: (name: string) =>
+    apiFetch<{ name: string; restored: string[] }>(
+      `/backups/${encodeURIComponent(name)}/restore`,
+      { method: 'POST' },
+    ),
+  getSettings: () => apiFetch<BackupSettings>('/backups/settings'),
+  saveSettings: (s: Partial<BackupSettings>) =>
+    apiFetch<BackupSettings>('/backups/settings', { method: 'PUT', body: JSON.stringify(s) }),
+  // Archives hold sessions + full data — fetched as an authed blob, never a raw URL.
+  download: async (name: string) => {
+    const blob = await fetchBlob(`/backups/${encodeURIComponent(name)}/download`)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+}
+
 export const analyticsApi = {
   dashboard: () => apiFetch<DashboardSnapshot>('/analytics/dashboard'),
   broadcastDashboard: () =>

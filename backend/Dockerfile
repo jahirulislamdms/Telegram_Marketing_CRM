@@ -6,9 +6,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# System deps for building psycopg / cryptography and for healthchecks.
+# System deps for building psycopg / cryptography, for healthchecks, and
+# postgresql-client for pg_dump/psql used by the Backup & Restore center (15.2).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl \
+    && apt-get install -y --no-install-recommends \
+        build-essential curl postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies (project is installed editable so the bind-mount

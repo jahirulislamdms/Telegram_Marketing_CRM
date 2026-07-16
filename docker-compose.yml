@@ -14,8 +14,15 @@ x-backend-build: &backend-build
   environment:
     POSTGRES_HOST: postgres
     REDIS_HOST: redis
+    # Matches the ./backups:/backups mount below (and the `backup` service).
+    BACKUP_DIR: /backups
   volumes:
     - ./backend:/app
+    # Telethon sessions (owned by the engine; the backend needs them so the
+    # Backup & Restore center can include/restore logged-in accounts).
+    - ./sessions:/app/sessions
+    # Backup archives (Backup & Restore center, 15.2).
+    - ./backups:/backups
   restart: unless-stopped
 
 services:
@@ -122,7 +129,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS::80}
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-:80}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

@@ -1253,6 +1253,11 @@ select:focus {
   background: color-mix(in srgb, var(--err) 12%, transparent);
 }
 
+.section-title {
+  font-size: 1.05rem;
+  margin: 18px 0 4px;
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

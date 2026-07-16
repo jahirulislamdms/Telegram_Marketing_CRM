@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     send_min_delay_seconds: int = 40
     send_max_delay_seconds: int = 180
 
+    # ---- Backup & restore center (Phase 15.2) ----
+    # Where backup archives are written (a mounted volume in Docker).
+    backup_dir: str = "./backups"
+    # How many archives to keep — older ones are pruned automatically.
+    backup_keep_last: int = 5
+
     # ---- Security / hardening (Phase 12) ----
     # Per-client-IP request rate limiting (fixed window of `rate_limit_window_seconds`).
     rate_limit_enabled: bool = True

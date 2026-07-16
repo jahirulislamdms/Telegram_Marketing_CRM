@@ -42,6 +42,12 @@ celery_app.conf.beat_schedule = {
         "task": "analytics.dashboard_tick",
         "schedule": 15.0,  # push a live Dashboard snapshot every 15 seconds
     },
+    "backup-auto-tick": {
+        # Checks hourly; the task honors the UI-editable on/off + every-N-days
+        # schedule, so changing it needs no beat restart.
+        "task": "backup.auto_tick",
+        "schedule": 3600.0,
+    },
 }
 
 celery_app.autodiscover_tasks(["worker.tasks"])

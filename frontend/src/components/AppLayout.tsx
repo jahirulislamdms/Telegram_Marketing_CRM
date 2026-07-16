@@ -23,6 +23,7 @@ const NAV: NavItem[] = [
   { to: '/campaigns', label: 'Campaigns', icon: '◆', end: false, roles: ['admin', 'manager'] },
   { to: '/bots', label: 'Bots', icon: '⌬', end: false, roles: ['admin', 'manager'] },
   { to: '/analytics', label: 'Analytics', icon: '◷', end: false, roles: ['admin', 'manager'] },
+  { to: '/settings', label: 'Settings', icon: '⚙', end: false, roles: ['admin'] },
   { to: '/staff', label: 'Staff', icon: '☰', end: false, roles: ['admin'] },
 ]
 
