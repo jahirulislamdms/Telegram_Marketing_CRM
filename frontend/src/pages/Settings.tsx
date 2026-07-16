@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   ApiError,
   BACKUP_SCOPES,
@@ -31,6 +31,7 @@ export default function Settings() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const uploadRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +67,26 @@ export default function Settings() {
       await load()
     } catch (e) {
       setError(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]
+    e.target.value = ''
+    if (!f) return
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const meta = await backupsApi.upload(f)
+      setNotice(
+        `Loaded ${f.name} (${meta.scope.join(', ')}). Use Restore below to apply it.`,
+      )
+      await load()
+    } catch (e2) {
+      setError(errMsg(e2))
     } finally {
       setBusy(false)
     }
@@ -161,6 +182,29 @@ export default function Settings() {
           </button>
         </section>
 
+        {/* Load a downloaded backup back onto the server */}
+        <section className="card">
+          <div className="card-head">Load a backup file</div>
+          <p className="hint">
+            Have a backup you downloaded earlier? Upload it here — it's checked, added to the
+            list below, then you can <strong>Restore</strong> it.
+          </p>
+          <input
+            ref={uploadRef}
+            type="file"
+            accept=".gz,.tar.gz,application/gzip"
+            style={{ display: 'none' }}
+            onChange={onUpload}
+          />
+          <button
+            className="btn btn-primary btn-block"
+            onClick={() => uploadRef.current?.click()}
+            disabled={busy}
+          >
+            {busy ? 'Working…' : 'Choose backup file…'}
+          </button>
+        </section>
+
         {/* Auto-backup */}
         <section className="card">
           <div className="card-head">Automatic backups</div>
@@ -224,7 +268,20 @@ export default function Settings() {
                   <td>
                     <code>{b.name}</code>
                   </td>
-                  <td>{new Date(b.created_at).toLocaleString()}</td>
+                  <td>
+                    {new Date(b.created_at).toLocaleString()}
+                    {b.uploaded && (
+                      <>
+                        {' '}
+                        <span className="badge badge--wait">uploaded</span>
+                        {b.original_created_at && (
+                          <div className="hint-inline">
+                            made {new Date(b.original_created_at).toLocaleString()}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </td>
                   <td>{humanSize(b.size)}</td>
                   <td>
                     {b.scope.map((s) => (

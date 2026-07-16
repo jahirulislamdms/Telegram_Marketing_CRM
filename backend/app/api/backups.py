@@ -6,7 +6,7 @@ here requires an admin and is served over HTTPS only (see docs/DEPLOY.md).
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,35 @@ async def create_backup(
     await audit.record_event(
         db, type="backup.create", actor_type="user", actor_id=user.id,
         entity_ref=f"backup:{meta['name']}", meta={"scope": meta["scope"]},
+    )
+    return meta
+
+
+@router.post("/upload", response_model=BackupOut, status_code=status.HTTP_201_CREATED)
+async def upload_backup(
+    file: UploadFile = File(...),
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Load a previously downloaded backup file back onto the server (§15.2.f).
+
+    The archive is validated before being accepted; it then appears in the list
+    and can be restored with the normal Restore action.
+    """
+    data = await file.read()
+    try:
+        meta = backup_service.save_uploaded_backup(data, file.filename)
+    except ValueError as exc:
+        raise _bad(str(exc))
+    except Exception as exc:  # noqa: BLE001
+        log.exception("backup upload failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Upload failed: {exc}"
+        )
+    await audit.record_event(
+        db, type="backup.upload", actor_type="user", actor_id=user.id,
+        entity_ref=f"backup:{meta['name']}",
+        meta={"scope": meta["scope"], "size": meta["size"], "source": file.filename},
     )
     return meta
 

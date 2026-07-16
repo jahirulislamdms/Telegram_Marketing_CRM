@@ -79,6 +79,8 @@ class Settings(BaseSettings):
     backup_dir: str = "./backups"
     # How many archives to keep — older ones are pruned automatically.
     backup_keep_last: int = 5
+    # Largest backup archive accepted by the upload/load endpoint.
+    backup_max_upload_mb: int = 500
 
     # ---- Security / hardening (Phase 12) ----
     # Per-client-IP request rate limiting (fixed window of `rate_limit_window_seconds`).

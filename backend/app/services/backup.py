@@ -293,6 +293,78 @@ async def create_backup(db: AsyncSession, scope: list[str] | None = None) -> dic
     return meta
 
 
+def _validate_archive(path: Path) -> dict:
+    """Confirm a file really is one of our backups; returns its manifest."""
+    try:
+        with tarfile.open(path, "r:gz") as tar:
+            if "manifest.json" not in tar.getnames():
+                raise ValueError("not a CRM backup archive (manifest.json missing)")
+            member = tar.extractfile("manifest.json")
+            manifest = json.loads(member.read()) if member else None
+    except tarfile.TarError as exc:
+        raise ValueError(f"not a valid .tar.gz archive ({exc})")
+    except json.JSONDecodeError:
+        raise ValueError("backup manifest is not valid JSON")
+    if not isinstance(manifest, dict) or not manifest.get("scope"):
+        raise ValueError("backup manifest is invalid")
+    return manifest
+
+
+def save_uploaded_backup(data: bytes, filename: str | None = None) -> dict:
+    """Load a previously downloaded backup back onto the server (§15.2.f).
+
+    The file is validated as a real CRM archive before it is accepted, then
+    stored under a fresh (collision-safe) name so it sorts as the newest entry
+    and can't be pruned out from under the operator. Its *original* creation
+    time is kept in the metadata for display. Restoring it afterwards uses the
+    normal restore flow.
+    """
+    if not data:
+        raise ValueError("empty file")
+    limit = settings.backup_max_upload_mb * 1024 * 1024
+    if len(data) > limit:
+        raise ValueError(f"file too large (max {settings.backup_max_upload_mb} MB)")
+
+    root = backup_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    tmp_fd = tempfile.NamedTemporaryFile(dir=root, suffix=".part", delete=False)
+    try:
+        tmp_fd.write(data)
+        tmp_fd.close()
+        tmp_path = Path(tmp_fd.name)
+        manifest = _validate_archive(tmp_path)  # raises ValueError if not ours
+    except ValueError:
+        Path(tmp_fd.name).unlink(missing_ok=True)
+        raise
+    except Exception:
+        Path(tmp_fd.name).unlink(missing_ok=True)
+        raise
+
+    uploaded_at = _now()
+    base = f"{PREFIX}{uploaded_at.strftime('%Y%m%d-%H%M%S')}"
+    archive = root / f"{base}{SUFFIX}"
+    counter = 1
+    while archive.exists():
+        archive = root / f"{base}-{counter}{SUFFIX}"
+        counter += 1
+    tmp_path.replace(archive)
+
+    meta = {
+        "name": archive.name,
+        "size": archive.stat().st_size,
+        "created_at": uploaded_at.isoformat(),
+        "scope": manifest.get("scope", []),
+        "app_version": manifest.get("app_version"),
+        "db_file": manifest.get("db_file"),
+        "original_created_at": manifest.get("created_at"),
+        "uploaded": True,
+    }
+    _meta_path(archive).write_text(json.dumps(meta, indent=2))
+    # Deliberately no prune here: a just-uploaded archive must not be deleted.
+    log.info("backup uploaded: %s (from %s)", archive.name, filename or "?")
+    return meta
+
+
 def delete_backup(name: str) -> None:
     archive = resolve_archive(name)
     if not archive.exists():

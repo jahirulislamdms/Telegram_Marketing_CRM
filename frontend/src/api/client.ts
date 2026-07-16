@@ -1046,6 +1046,8 @@ export interface BackupItem {
   scope: string[]
   app_version: string | null
   db_file: string | null
+  original_created_at?: string | null
+  uploaded?: boolean
 }
 
 export interface BackupSettings {
@@ -1058,6 +1060,12 @@ export const backupsApi = {
   list: () => apiFetch<BackupItem[]>('/backups'),
   create: (scope: string[]) =>
     apiFetch<BackupItem>('/backups', { method: 'POST', body: JSON.stringify({ scope }) }),
+  // Load a previously downloaded backup file back onto the server.
+  upload: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return multipartForm<BackupItem>('/backups/upload', form)
+  },
   remove: (name: string) =>
     apiFetch<void>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   restore: (name: string) =>

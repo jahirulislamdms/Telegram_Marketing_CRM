@@ -211,6 +211,122 @@ def test_restore_unknown_backup_404(client, admin_token, backup_root):
     assert r.status_code == 404
 
 
+# ------------------------------------------- 15.2.f: load a backup file ------
+
+
+def test_upload_downloaded_backup_then_restore_it(
+    client, admin_token, backup_root, sessions_dir
+):
+    """Download an archive, delete it server-side, re-upload the file, restore."""
+    client.put(
+        "/api/backups/settings", headers=_auth(admin_token),
+        json={"enabled": True, "interval_days": 9},
+    )
+    meta = client.post(
+        "/api/backups", headers=_auth(admin_token), json={"scope": ["sessions", "settings"]}
+    ).json()
+    blob = client.get(f"/api/backups/{meta['name']}/download", headers=_auth(admin_token)).content
+
+    # It's gone from the server, and the world has moved on.
+    client.delete(f"/api/backups/{meta['name']}", headers=_auth(admin_token))
+    client.put(
+        "/api/backups/settings", headers=_auth(admin_token),
+        json={"enabled": False, "interval_days": 30},
+    )
+    (sessions_dir / "7.session").unlink()
+    assert client.get("/api/backups", headers=_auth(admin_token)).json() == []
+
+    # Load the downloaded file back.
+    up = client.post(
+        "/api/backups/upload", headers=_auth(admin_token),
+        files={"file": ("my-old-backup.tar.gz", blob, "application/gzip")},
+    )
+    assert up.status_code == 201, up.text
+    loaded = up.json()
+    assert loaded["uploaded"] is True
+    assert set(loaded["scope"]) == {"sessions", "settings"}
+    assert loaded["original_created_at"] == meta["created_at"]  # original time kept
+    assert loaded["name"] in {b["name"] for b in client.get("/api/backups", headers=_auth(admin_token)).json()}
+
+    # The normal Restore flow works on it.
+    r = client.post(f"/api/backups/{loaded['name']}/restore", headers=_auth(admin_token))
+    assert r.status_code == 200, r.text
+    assert set(r.json()["restored"]) == {"sessions", "settings"}
+    assert (sessions_dir / "7.session").read_bytes() == b"fake-telethon-session"
+    cfg = client.get("/api/backups/settings", headers=_auth(admin_token)).json()
+    assert cfg["enabled"] is True and cfg["interval_days"] == 9
+
+
+def test_upload_rejects_non_archive(client, admin_token, backup_root):
+    r = client.post(
+        "/api/backups/upload", headers=_auth(admin_token),
+        files={"file": ("evil.tar.gz", b"i am definitely not a tar.gz", "application/gzip")},
+    )
+    assert r.status_code == 400
+    assert "archive" in r.json()["detail"].lower()
+    assert list(backup_root.glob("*")) == []  # nothing left behind
+
+
+def test_upload_rejects_archive_without_manifest(client, admin_token, backup_root, tmp_path):
+    stray = tmp_path / "stray.tar.gz"
+    payload = tmp_path / "hello.txt"
+    payload.write_text("not a backup")
+    with tarfile.open(stray, "w:gz") as tar:
+        tar.add(payload, arcname="hello.txt")
+    r = client.post(
+        "/api/backups/upload", headers=_auth(admin_token),
+        files={"file": ("stray.tar.gz", stray.read_bytes(), "application/gzip")},
+    )
+    assert r.status_code == 400
+    assert "manifest" in r.json()["detail"].lower()
+    assert not list(backup_root.glob(f"{backup_service.PREFIX}*"))
+
+
+def test_upload_rejects_empty_and_oversized(client, admin_token, backup_root, monkeypatch):
+    empty = client.post(
+        "/api/backups/upload", headers=_auth(admin_token),
+        files={"file": ("empty.tar.gz", b"", "application/gzip")},
+    )
+    assert empty.status_code == 400
+
+    monkeypatch.setattr(settings, "backup_max_upload_mb", 0)  # everything is too big
+    big = client.post(
+        "/api/backups/upload", headers=_auth(admin_token),
+        files={"file": ("big.tar.gz", b"x" * 1024, "application/gzip")},
+    )
+    assert big.status_code == 400
+    assert "too large" in big.json()["detail"].lower()
+
+
+def test_uploaded_backup_is_not_pruned_away(client, admin_token, backup_root, sessions_dir, monkeypatch):
+    """An upload must survive even when the keep-limit is already reached."""
+    monkeypatch.setattr(settings, "backup_keep_last", 1)
+    meta = client.post(
+        "/api/backups", headers=_auth(admin_token), json={"scope": ["settings"]}
+    ).json()
+    blob = client.get(f"/api/backups/{meta['name']}/download", headers=_auth(admin_token)).content
+
+    loaded = client.post(
+        "/api/backups/upload", headers=_auth(admin_token),
+        files={"file": ("old.tar.gz", blob, "application/gzip")},
+    ).json()
+    names = {b["name"] for b in client.get("/api/backups", headers=_auth(admin_token)).json()}
+    assert loaded["name"] in names  # still there despite keep_last=1
+
+
+def test_upload_is_admin_only(client, admin_token, backup_root):
+    client.post(
+        "/api/users", headers=_auth(admin_token),
+        json={"email": "mgr15f@test.com", "password": "MgrPass123", "role": "manager"},
+    )
+    mgr = _login(client, "mgr15f@test.com", "MgrPass123")
+    r = client.post(
+        "/api/backups/upload", headers=_auth(mgr),
+        files={"file": ("x.tar.gz", b"data", "application/gzip")},
+    )
+    assert r.status_code == 403
+
+
 # ------------------------------------------------- auto-backup settings ------
 
 

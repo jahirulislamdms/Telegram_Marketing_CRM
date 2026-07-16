@@ -10,6 +10,9 @@ class BackupOut(BaseModel):
     scope: list[str]
     app_version: str | None = None
     db_file: str | None = None
+    # Set for archives loaded back from a downloaded file (§15.2.f).
+    original_created_at: str | None = None
+    uploaded: bool = False
 
 
 class CreateBackup(BaseModel):
