@@ -5,6 +5,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Query,
+    Response,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -14,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.dependencies import get_current_user, require_manager
 from app.auth.security import ACCESS_TOKEN_TYPE, JWTError, decode_token
 from app.db.models.contact import Contact
+from app.db.models.inbox import Message
 from app.db.models.proxy import Proxy
 from app.db.models.user import User
 from app.db.session import get_db
@@ -126,6 +128,48 @@ async def get_thread(
         conversation=ConversationOut(**await inbox_service.conversation_dict(db, conversation)),
         messages=[MessageOut(**inbox_service.message_dict(m)) for m in messages],
         contact=contact,
+    )
+
+
+@router.get("/messages/{message_id}/media")
+async def get_message_media(
+    message_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Stream a message's media, fetched on demand from Telegram (nothing stored).
+
+    Returns 404 when the media is gone (e.g. the peer deleted it) so the UI can
+    show a "media no longer available" placeholder.
+    """
+    message = await db.get(Message, message_id)
+    if message is None or message.type in ("text", "link"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No media for this message")
+    conversation = await _get_conversation_or_404(db, message.conversation_id)
+    await _ensure_access(db, user, conversation)
+    if message.tg_message_id is None or conversation.peer_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media reference unavailable")
+    account = await account_service.get_by_id(db, message.account_id or conversation.account_id)
+    if account is None or not account.session_ref:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Account not logged in")
+    proxy = await db.get(Proxy, account.proxy_id) if account.proxy_id else None
+    try:
+        result = await engine_client.download_media(
+            account, proxy, conversation.peer_id, message.tg_message_id
+        )
+    except engine_client.EngineUnavailable as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media no longer available")
+    filename = result.get("name") or f"media-{message_id}"
+    disposition = "attachment" if message.type == "file" else "inline"
+    return Response(
+        content=result["bytes"],
+        media_type=result.get("mime") or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "private, max-age=3600",
+        },
     )
 
 
@@ -268,6 +312,9 @@ async def simulate_incoming(
         peer_name=payload.peer_name,
         peer_username=payload.peer_username,
         text=payload.text,
+        msg_type=payload.msg_type,
+        media_ref=payload.media_ref,
+        tg_message_id=payload.tg_message_id,
     )
     await audit.record_event(
         db,

@@ -47,6 +47,43 @@ def _sender_name(sender) -> str | None:
     return name or getattr(sender, "username", None)
 
 
+def media_info(message) -> tuple[str | None, str | None]:
+    """Classify a message's media and return (kind, media_ref_json).
+
+    ``kind`` is one of image/video/gif/sticker/voice/audio/file (or None for a
+    plain text message). ``media_ref`` is a small JSON blob of display metadata
+    (mime/name/size/duration) — the bytes are fetched on demand from Telegram,
+    never stored on the VPS.
+    """
+    kind = None
+    if getattr(message, "photo", None):
+        kind = "image"
+    elif getattr(message, "voice", None):
+        kind = "voice"
+    elif getattr(message, "gif", None):
+        kind = "gif"
+    elif getattr(message, "video_note", None) or getattr(message, "video", None):
+        kind = "video"
+    elif getattr(message, "sticker", None):
+        kind = "sticker"
+    elif getattr(message, "audio", None):
+        kind = "audio"
+    elif getattr(message, "document", None) or getattr(message, "file", None):
+        kind = "file"
+    if kind is None:
+        return None, None
+    f = getattr(message, "file", None)
+    info: dict = {"kind": kind}
+    if f is not None:
+        info["mime"] = getattr(f, "mime_type", None)
+        info["name"] = getattr(f, "name", None)
+        info["size"] = getattr(f, "size", None)
+        duration = getattr(f, "duration", None)
+        if duration:
+            info["duration"] = duration
+    return kind, json.dumps(info)
+
+
 def register_listener(client, account_id: int) -> None:
     if getattr(client, "_inbox_listener", False):
         return
@@ -57,6 +94,7 @@ def register_listener(client, account_id: int) -> None:
             if not event.is_private:
                 return
             sender = await event.get_sender()
+            kind, media_ref = media_info(event.message)
             await publisher.publish(
                 {
                     "account_id": account_id,
@@ -64,6 +102,8 @@ def register_listener(client, account_id: int) -> None:
                     "peer_name": _sender_name(sender),
                     "peer_username": getattr(sender, "username", None),
                     "text": event.raw_text,
+                    "type": kind,
+                    "media_ref": media_ref,
                     "tg_message_id": event.id,
                 }
             )

@@ -480,12 +480,24 @@ export interface InboxEvent {
   snapshot?: DashboardSnapshot
 }
 
+async function fetchBlob(path: string): Promise<Blob> {
+  const { accessToken } = useAuth.getState()
+  const res = await fetch(`/api${path}`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  })
+  if (!res.ok) throw new ApiError(res.status, res.statusText)
+  return res.blob()
+}
+
 export const inboxApi = {
   listConversations: (params: Record<string, string> = {}) => {
     const qs = new URLSearchParams(params).toString()
     return apiFetch<Conversation[]>(`/inbox/conversations${qs ? `?${qs}` : ''}`)
   },
   getThread: (id: number) => apiFetch<Thread>(`/inbox/conversations/${id}`),
+  // Media is streamed from Telegram on demand (never stored on the VPS). Fetched
+  // as an authed blob so the token stays in the header, not the URL.
+  media: (messageId: number) => fetchBlob(`/inbox/messages/${messageId}/media`),
   markRead: (id: number) =>
     apiFetch<Conversation>(`/inbox/conversations/${id}/read`, { method: 'POST' }),
   setStatus: (id: number, status: ConversationStatus) =>
@@ -502,7 +514,11 @@ export const inboxApi = {
     account_id: number
     peer_id?: number
     peer_name?: string
-    text: string
+    peer_username?: string
+    text?: string
+    msg_type?: string
+    media_ref?: string
+    tg_message_id?: number
   }) =>
     apiFetch<Conversation>('/inbox/simulate-incoming', {
       method: 'POST',

@@ -58,7 +58,8 @@ class Message(Base):
     __table_args__ = (
         CheckConstraint("direction in ('in','out')", name="message_direction_valid"),
         CheckConstraint(
-            "type in ('text','image','voice','link')", name="message_type_valid"
+            "type in ('text','image','voice','link','video','gif','sticker','audio','file')",
+            name="message_type_valid",
         ),
         CheckConstraint(
             "status in ('queued','sent','delivered','failed','read')",

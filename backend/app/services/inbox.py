@@ -98,6 +98,8 @@ async def record_incoming(
     peer_name: str | None,
     peer_username: str | None = None,
     text: str | None,
+    msg_type: str | None = None,
+    media_ref: str | None = None,
     tg_message_id: int | None = None,
 ) -> tuple[Conversation, Message]:
     contact = await _find_contact_by_peer(db, peer_id, peer_username)
@@ -109,13 +111,15 @@ async def record_incoming(
         contact_id=contact.id if contact else None,
     )
     now = datetime.now(timezone.utc)
+    kind = msg_type or detect_type(text)
     message = Message(
         conversation_id=conversation.id,
         direction="in",
         account_id=account_id,
         sender="contact",
-        type=detect_type(text),
+        type=kind,
         body=text,
+        media_ref=media_ref,
         tg_message_id=tg_message_id,
         status="delivered",
         created_at=now,
@@ -124,7 +128,9 @@ async def record_incoming(
 
     conversation.unread_count += 1
     conversation.last_message_at = now
-    conversation.last_message_preview = _preview(text)
+    conversation.last_message_preview = _preview(text) or (
+        f"[{kind}]" if kind not in ("text", "link") else None
+    )
 
     # Consent guardrail: honor opt-out replies automatically and permanently.
     if is_opt_out(text):

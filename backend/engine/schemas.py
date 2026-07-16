@@ -68,6 +68,11 @@ class AddMember(Credentials):
     target: str
 
 
+class DownloadMedia(Credentials):
+    peer: str
+    message_id: int
+
+
 # ---- Bots (Phase 10) ----
 
 

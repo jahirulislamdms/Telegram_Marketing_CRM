@@ -11,7 +11,7 @@ import logging
 from contextlib import asynccontextmanager
 
 import redis.asyncio as redis
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 
 from app.config import settings
 from engine.bots_manager import BotManager
@@ -23,6 +23,7 @@ from engine.schemas import (
     BotSend,
     BotStart,
     Credentials,
+    DownloadMedia,
     JoinRequest,
     PasswordSubmit,
     PhoneSendCode,
@@ -261,6 +262,24 @@ async def send_file(account_id: int, body: SendFile) -> dict:
         )
     except EngineLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/clients/{account_id}/download-media")
+async def download_media(account_id: int, body: DownloadMedia):
+    """Stream a message's media bytes straight from Telegram (nothing stored)."""
+    try:
+        result = await _manager().download_media(
+            account_id, body.api_id, body.api_hash, _proxy(body), body.peer, body.message_id
+        )
+    except EngineLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if result is None:
+        raise HTTPException(status_code=404, detail="media not available")
+    return Response(
+        content=result["bytes"],
+        media_type=result.get("mime") or "application/octet-stream",
+        headers={"X-Media-Filename": result.get("name") or ""},
+    )
 
 
 @app.post("/clients/{account_id}/destination/resolve")

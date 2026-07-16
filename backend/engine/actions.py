@@ -100,6 +100,32 @@ async def send_file(client, target: str, file: str, caption: str | None = None) 
         return {"sent": False, "error": "peerflood"}
 
 
+async def download_media(client, peer, message_id) -> dict | None:
+    """Fetch a message's media as bytes from Telegram.
+
+    Nothing is written to disk — the bytes are returned to the caller, which
+    streams them to the browser. Returns None when the message/media is gone
+    (e.g. the peer deleted it), so the UI can show a placeholder.
+    """
+    peer = coerce_target(peer)
+    try:
+        msg = await client.get_messages(peer, ids=int(message_id))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("download_media: get_messages failed: %s", exc)
+        return None
+    if msg is None or not getattr(msg, "media", None):
+        return None
+    data = await msg.download_media(file=bytes)
+    if not data:
+        return None
+    f = getattr(msg, "file", None)
+    return {
+        "bytes": data,
+        "mime": getattr(f, "mime_type", None) or "application/octet-stream",
+        "name": getattr(f, "name", None),
+    }
+
+
 async def resolve_destination(client, link: str) -> dict:
     entity = await client.get_entity(link)
     if isinstance(entity, Channel):

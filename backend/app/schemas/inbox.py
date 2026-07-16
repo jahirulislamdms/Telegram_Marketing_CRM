@@ -63,7 +63,10 @@ class SimulateIncoming(BaseModel):
     peer_id: int | None = None
     peer_name: str | None = None
     peer_username: str | None = None
-    text: str = Field(min_length=1)
+    text: str | None = None
+    msg_type: str | None = None
+    media_ref: str | None = None
+    tg_message_id: int | None = None
 
 
 class BulkIds(BaseModel):

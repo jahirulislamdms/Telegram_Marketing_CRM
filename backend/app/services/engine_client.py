@@ -204,6 +204,33 @@ async def send_file(
     return await _request("POST", f"/clients/{account.id}/send-file", json=body)
 
 
+async def download_media(
+    account: Account, proxy: Proxy | None, peer, message_id: int
+) -> dict | None:
+    """Fetch a message's media bytes from the engine (streamed from Telegram).
+
+    Returns ``{"bytes", "mime", "name"}`` or ``None`` when the media is gone.
+    """
+    body = credentials_payload(account, proxy)
+    body["peer"] = str(peer)
+    body["message_id"] = int(message_id)
+    url = f"{settings.engine_url}/clients/{account.id}/download-media"
+    try:
+        async with httpx.AsyncClient(timeout=settings.engine_timeout_seconds) as client:
+            resp = await client.post(url, json=body)
+    except httpx.HTTPError as exc:
+        raise EngineUnavailable(f"engine request failed: {exc}") from exc
+    if resp.status_code == 404:
+        return None
+    if resp.status_code >= 400:
+        raise EngineUnavailable(f"engine media error {resp.status_code}: {resp.text[:200]}")
+    return {
+        "bytes": resp.content,
+        "mime": resp.headers.get("content-type") or "application/octet-stream",
+        "name": resp.headers.get("x-media-filename") or None,
+    }
+
+
 async def resolve_username(
     account: Account, proxy: Proxy | None, username: str
 ) -> dict:

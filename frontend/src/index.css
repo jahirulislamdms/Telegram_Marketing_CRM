@@ -1068,6 +1068,76 @@ select:focus {
   margin: 0;
 }
 
+/* ---------- Inbox media (Phase 15.1.b) ---------- */
+.media-img {
+  max-width: 260px;
+  max-height: 280px;
+  border-radius: 10px;
+  display: block;
+  cursor: zoom-in;
+}
+.media-sticker {
+  max-width: 140px;
+  max-height: 140px;
+  background: transparent;
+}
+.media-video {
+  max-width: 300px;
+  max-height: 320px;
+  border-radius: 10px;
+  display: block;
+}
+.media-audio {
+  width: 240px;
+  height: 40px;
+}
+.media-loading,
+.media-missing {
+  font-size: 0.8rem;
+  color: var(--muted);
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.media-missing {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, var(--border));
+}
+.media-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elev);
+  color: var(--text);
+  cursor: pointer;
+  max-width: 260px;
+}
+.media-file:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.media-file-icon {
+  font-size: 1.2rem;
+  color: var(--accent);
+}
+.media-file-meta {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.media-file-name {
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.media-file-size {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .sidebar {

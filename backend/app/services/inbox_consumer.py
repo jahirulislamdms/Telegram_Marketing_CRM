@@ -62,6 +62,8 @@ async def _handle(data: dict) -> None:
                 peer_name=data.get("peer_name"),
                 peer_username=data.get("peer_username"),
                 text=data.get("text"),
+                msg_type=data.get("type"),
+                media_ref=data.get("media_ref"),
                 tg_message_id=data.get("tg_message_id"),
             )
             await publish(

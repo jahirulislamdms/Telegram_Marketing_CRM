@@ -332,6 +332,19 @@ class SessionManager:
             client = await self._authorized_client(account_id, api_id, api_hash, proxy)
             return await action_ops.send_file(client, target, file, caption)
 
+    async def download_media(
+        self,
+        account_id: int,
+        api_id: str,
+        api_hash: str,
+        proxy: dict | None,
+        peer,
+        message_id: int,
+    ) -> dict | None:
+        async with self._lock(account_id):
+            client = await self._authorized_client(account_id, api_id, api_hash, proxy)
+            return await action_ops.download_media(client, peer, message_id)
+
     # --------------------------------------------------------- destinations ---
 
     async def resolve_destination(

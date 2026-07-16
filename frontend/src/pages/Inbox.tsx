@@ -22,6 +22,107 @@ function upsert(list: Conversation[], conv: Conversation): Conversation[] {
   return [conv, ...rest]
 }
 
+const MEDIA_TYPES = ['image', 'video', 'gif', 'sticker', 'voice', 'audio', 'file']
+
+interface MediaMeta {
+  kind?: string
+  mime?: string
+  name?: string
+  size?: number
+  duration?: number
+}
+
+function parseMeta(ref: string | null): MediaMeta {
+  if (!ref) return {}
+  try {
+    return JSON.parse(ref) as MediaMeta
+  } catch {
+    return {}
+  }
+}
+
+function humanSize(n?: number): string {
+  if (!n) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** Files download on click (not auto-fetched — a thread may have many). */
+function FileChip({ message, meta }: { message: InboxMessage; meta: MediaMeta }) {
+  const [busy, setBusy] = useState(false)
+  const download = async () => {
+    setBusy(true)
+    try {
+      const blob = await inboxApi.media(message.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = meta.name || `file-${message.id}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      /* unavailable */
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button className="media-file" onClick={download} disabled={busy}>
+      <span className="media-file-icon">⭳</span>
+      <span className="media-file-meta">
+        <span className="media-file-name">{meta.name || 'Download file'}</span>
+        {meta.size ? <span className="media-file-size">{humanSize(meta.size)}</span> : null}
+      </span>
+    </button>
+  )
+}
+
+/** Visual/playable media (image/gif/sticker/video/voice/audio) — streamed from
+ *  Telegram as an authed blob, rendered from an object URL. */
+function VisualMedia({ message, meta }: { message: InboxMessage; meta: MediaMeta }) {
+  const [url, setUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let obj: string | null = null
+    let cancelled = false
+    inboxApi
+      .media(message.id)
+      .then((blob) => {
+        if (cancelled) return
+        obj = URL.createObjectURL(blob)
+        setUrl(obj)
+      })
+      .catch(() => !cancelled && setFailed(true))
+    return () => {
+      cancelled = true
+      if (obj) URL.revokeObjectURL(obj)
+    }
+  }, [message.id])
+
+  if (failed) return <div className="media-missing">media no longer available</div>
+  if (!url) return <div className="media-loading">loading media…</div>
+
+  const t = message.type
+  if (t === 'image' || t === 'gif' || t === 'sticker')
+    return (
+      <img
+        className={`media-img${t === 'sticker' ? ' media-sticker' : ''}`}
+        src={url}
+        alt={meta.name || t}
+      />
+    )
+  if (t === 'video') return <video className="media-video" src={url} controls />
+  return <audio className="media-audio" src={url} controls />
+}
+
+function MediaAttachment({ message }: { message: InboxMessage }) {
+  const meta = parseMeta(message.media_ref)
+  if (message.type === 'file') return <FileChip message={message} meta={meta} />
+  return <VisualMedia message={message} meta={meta} />
+}
+
 export default function Inbox() {
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -192,17 +293,25 @@ export default function Inbox() {
                 </select>
               </div>
               <div className="thread-body">
-                {thread.messages.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`bubble ${m.direction === 'out' ? 'bubble--out' : 'bubble--in'}`}
-                  >
-                    <div className="bubble-body">{m.body || `[${m.type}]`}</div>
-                    <div className="bubble-time">
-                      {m.created_at ? new Date(m.created_at).toLocaleTimeString() : ''}
+                {thread.messages.map((m) => {
+                  const isMedia = MEDIA_TYPES.includes(m.type)
+                  return (
+                    <div
+                      key={m.id}
+                      className={`bubble ${m.direction === 'out' ? 'bubble--out' : 'bubble--in'}`}
+                    >
+                      {isMedia && <MediaAttachment message={m} />}
+                      {m.body ? (
+                        <div className="bubble-body">{m.body}</div>
+                      ) : (
+                        !isMedia && <div className="bubble-body">{`[${m.type}]`}</div>
+                      )}
+                      <div className="bubble-time">
+                        {m.created_at ? new Date(m.created_at).toLocaleTimeString() : ''}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               <div className="composer">
                 <input
