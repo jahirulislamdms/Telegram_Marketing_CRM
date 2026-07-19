@@ -10,14 +10,36 @@ from telethon.errors import (
     UserBannedInChannelError,
 )
 from telethon.tl.functions.channels import InviteToChannelRequest, JoinChannelRequest
+from telethon.tl.functions.contacts import ImportContactsRequest
 from telethon.tl.functions.messages import (
     AddChatUserRequest,
     ExportChatInviteRequest,
     ImportChatInviteRequest,
 )
-from telethon.tl.types import Channel
+from telethon.tl.types import Channel, InputPhoneContact
 
 log = logging.getLogger("engine.actions")
+
+
+async def resolve_for_send(client, target):
+    """Turn a phone-number target into a messageable user entity.
+
+    Telegram cannot message a raw phone number — it must first be imported as a
+    contact to resolve it to a user (same mechanism as phone lead resolution).
+    Numeric ids, ``@usernames``, and already-resolved entities pass through
+    unchanged. Raises ``ValueError`` when the phone has no Telegram account.
+    """
+    if isinstance(target, str) and target.startswith("+"):
+        result = await client(
+            ImportContactsRequest(
+                [InputPhoneContact(client_id=0, phone=target, first_name="Lead", last_name="")]
+            )
+        )
+        users = getattr(result, "users", None)
+        if users:
+            return users[0]
+        raise ValueError(f"no Telegram account for {target}")
+    return target
 
 
 def invite_hash(link: str) -> str | None:
@@ -76,10 +98,13 @@ async def join_chat(client, link: str) -> dict:
 
 async def send_dm(client, target: str, text: str) -> dict:
     """Send a text message. Flood/peer-flood/ban warnings are returned (not raised)
-    so the caller can auto-quarantine the account and pause sending."""
+    so the caller can auto-quarantine the account and pause sending; any other
+    failure (e.g. an unreachable phone) is also returned, never raised, so the
+    engine never 500s on a bad recipient."""
     target = coerce_target(target)
     try:
-        await client.send_message(target, text)
+        entity = await resolve_for_send(client, target)
+        await client.send_message(entity, text)
         return {"sent": True}
     except FloodWaitError as exc:
         return {"sent": False, "error": "flood", "seconds": exc.seconds}
@@ -87,18 +112,25 @@ async def send_dm(client, target: str, text: str) -> dict:
         return {"sent": False, "error": "peerflood"}
     except UserBannedInChannelError:
         return {"sent": False, "error": "banned"}
+    except Exception as exc:  # noqa: BLE001 - resolution/send failure -> clean error
+        log.warning("send_dm failed for %r: %s", target, exc)
+        return {"sent": False, "error": str(exc)[:200]}
 
 
 async def send_file(client, target: str, file: str, caption: str | None = None) -> dict:
     # Telethon accepts a URL, local path, or bytes for ``file``.
     target = coerce_target(target)
     try:
-        await client.send_file(target, file, caption=caption)
+        entity = await resolve_for_send(client, target)
+        await client.send_file(entity, file, caption=caption)
         return {"sent": True}
     except FloodWaitError as exc:
         return {"sent": False, "error": "flood", "seconds": exc.seconds}
     except PeerFloodError:
         return {"sent": False, "error": "peerflood"}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("send_file failed for %r: %s", target, exc)
+        return {"sent": False, "error": str(exc)[:200]}
 
 
 _DEFAULT_MEDIA_NAME = {
@@ -133,7 +165,8 @@ async def send_media(
     elif kind == "file":
         kwargs["force_document"] = True
     try:
-        msg = await client.send_file(target, bio, **kwargs)
+        entity = await resolve_for_send(client, target)
+        msg = await client.send_file(entity, bio, **kwargs)
         return {"sent": True, "message_id": getattr(msg, "id", None)}
     except FloodWaitError as exc:
         return {"sent": False, "error": "flood", "seconds": exc.seconds}
@@ -141,6 +174,9 @@ async def send_media(
         return {"sent": False, "error": "peerflood"}
     except UserBannedInChannelError:
         return {"sent": False, "error": "banned"}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("send_media failed for %r: %s", target, exc)
+        return {"sent": False, "error": str(exc)[:200]}
 
 
 async def download_media(client, peer, message_id) -> dict | None:

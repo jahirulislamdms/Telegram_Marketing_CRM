@@ -22,8 +22,12 @@ from app.services.contacts import (
 
 def test_normalize_phone():
     assert normalize_phone(" +1 (415) 555-0123 ") == "+14155550123"
+    # A phone without '+' must gain one so it isn't read as a Telegram user id.
+    assert normalize_phone("8801646562267") == "+8801646562267"
+    assert normalize_phone("880 164 656 2267") == "+8801646562267"
     assert normalize_phone("") is None
     assert normalize_phone(None) is None
+    assert normalize_phone("abc") is None
 
 
 def test_normalize_username():
@@ -209,6 +213,33 @@ def test_message_updates_stage(client, admin_token, monkeypatch):
     assert r.json()["stage"] == "contacted"
     assert r.json()["last_contacted_at"] is not None
     assert sent and sent[0][1] == "hello there"
+
+
+def test_message_phone_contact_sends_plus_prefixed_target(client, admin_token, monkeypatch):
+    """A phone contact must reach the engine as '+phone' (so it resolves), not a
+    bare number the engine would read as a user id."""
+    aid = _logged_in_account(client, admin_token, monkeypatch)
+    contact = client.post(
+        "/api/contacts", headers=_auth(admin_token),
+        json={"name": "Phone Lead", "phone": "8801646562267", "consent": True},
+    ).json()
+    # Stored normalised with a leading '+'.
+    assert contact["phone"] == "+8801646562267"
+
+    sent = []
+
+    async def _send(account, proxy, target, text):
+        sent.append(target)
+        return {"sent": True}
+
+    monkeypatch.setattr(engine_client, "send_message", _send)
+    r = client.post(
+        f"/api/contacts/{contact['id']}/message",
+        headers=_auth(admin_token),
+        json={"account_id": aid, "text": "hi"},
+    )
+    assert r.status_code == 200, r.text
+    assert sent == ["+8801646562267"]  # phone with '+', engine will import/resolve it
 
 
 def test_message_blocked_without_consent(client, admin_token, monkeypatch):

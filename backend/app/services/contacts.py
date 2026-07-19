@@ -36,8 +36,12 @@ def normalize_phone(value) -> str | None:
     s = str(value).strip()
     if not s:
         return None
-    cleaned = "".join(ch for ch in s if ch.isdigit() or ch == "+")
-    return cleaned or None
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if not digits:
+        return None
+    # Always keep a leading '+' so a phone is never mistaken for a Telegram user
+    # id (an all-digit target is otherwise sent as a numeric id and fails).
+    return "+" + digits
 
 
 def normalize_username(value) -> str | None:
@@ -316,7 +320,9 @@ def message_target(contact: Contact) -> str | None:
     if contact.username:
         return f"@{contact.username}"
     if contact.phone:
-        return contact.phone
+        # Ensure the '+' so the engine treats it as a phone (to import/resolve),
+        # not as a numeric user id. Covers rows saved before this fix.
+        return contact.phone if contact.phone.startswith("+") else f"+{contact.phone}"
     return None
 
 
