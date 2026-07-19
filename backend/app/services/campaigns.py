@@ -13,6 +13,7 @@ from app.db.models.contact import Contact
 from app.db.models.destination import Destination, GroupMembership
 from app.db.models.proxy import Proxy
 from app.realtime import publish
+from app.services import contacts as contact_service
 from app.services import engine_client
 from app.services import inbox as inbox_service
 from app.services.destinations import already_member_contact_ids
@@ -240,11 +241,8 @@ async def _execute_target(
     agent_id: int | None,
     rng: random.Random,
 ) -> dict:
-    ident = (
-        str(contact.telegram_user_id)
-        if contact.telegram_user_id
-        else (f"@{contact.username}" if contact.username else contact.phone)
-    )
+    # Re-resolvable target so any rotated account can reach the contact.
+    ident = contact_service.send_identifier(contact)
     if not ident:
         return {"result": "failed", "detail": "no reachable identifier"}
     proxy = await db.get(Proxy, account.proxy_id) if account.proxy_id else None

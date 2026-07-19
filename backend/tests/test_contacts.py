@@ -215,6 +215,23 @@ def test_message_updates_stage(client, admin_token, monkeypatch):
     assert sent and sent[0][1] == "hello there"
 
 
+def test_send_identifier_prefers_resolvable_over_user_id():
+    """A re-resolvable @username/+phone beats the cached numeric id, so ANY
+    account can reach the contact (a user id's access-hash is per-account)."""
+    from app.db.models.contact import Contact
+    from app.services.contacts import send_identifier
+
+    assert send_identifier(Contact(username="alice", phone="+123", telegram_user_id=9)) == "@alice"
+    # A resolved phone lead still sends via +phone (imported per-account), NOT the id.
+    assert (
+        send_identifier(Contact(phone="+8801646562267", telegram_user_id=855963265073))
+        == "+8801646562267"
+    )
+    assert send_identifier(Contact(phone="8801646562267")) == "+8801646562267"  # '+' added
+    assert send_identifier(Contact(telegram_user_id=42)) == "42"  # last resort
+    assert send_identifier(Contact()) is None
+
+
 def test_message_phone_contact_sends_plus_prefixed_target(client, admin_token, monkeypatch):
     """A phone contact must reach the engine as '+phone' (so it resolves), not a
     bare number the engine would read as a user id."""

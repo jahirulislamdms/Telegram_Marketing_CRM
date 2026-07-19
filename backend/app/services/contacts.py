@@ -314,16 +314,28 @@ async def resolve_contact(db: AsyncSession, contact: Contact) -> Contact:
     return contact
 
 
-def message_target(contact: Contact) -> str | None:
-    if contact.telegram_user_id:
-        return str(contact.telegram_user_id)
+def send_identifier(contact: Contact) -> str | None:
+    """The best target to reach a contact from *any* account.
+
+    Prefer a **re-resolvable** identifier (``@username`` / ``+phone``) over the
+    cached numeric ``telegram_user_id``: a user id only carries an access-hash for
+    the one account that resolved it, so sending it from a different account fails
+    with "Could not find the input entity". A ``@username`` resolves publicly and a
+    ``+phone`` is imported per-account, so every account can reach the contact.
+    """
     if contact.username:
         return f"@{contact.username}"
     if contact.phone:
-        # Ensure the '+' so the engine treats it as a phone (to import/resolve),
-        # not as a numeric user id. Covers rows saved before this fix.
+        # Keep the '+' so the engine treats it as a phone to import/resolve, not a
+        # numeric user id (covers rows saved before the normalisation fix).
         return contact.phone if contact.phone.startswith("+") else f"+{contact.phone}"
+    if contact.telegram_user_id:
+        return str(contact.telegram_user_id)
     return None
+
+
+# Backwards-compatible alias.
+message_target = send_identifier
 
 
 async def message_contact(

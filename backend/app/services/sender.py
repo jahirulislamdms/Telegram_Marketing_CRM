@@ -13,6 +13,7 @@ from app.db.models.contact import Contact
 from app.db.models.proxy import Proxy
 from app.db.models.sender import SendJob, SendTarget
 from app.realtime import publish
+from app.services import contacts as contact_service
 from app.services import engine_client
 from app.services import inbox as inbox_service
 from worker.antiban import pacing
@@ -167,11 +168,8 @@ def build_executor(db: AsyncSession, agent_id: int | None) -> ExecuteFn:
     """Real executor: send via the engine and land the message in the inbox."""
 
     async def _execute(account: Account, contact: Contact, body: str) -> dict:
-        target = (
-            str(contact.telegram_user_id)
-            if contact.telegram_user_id
-            else (f"@{contact.username}" if contact.username else contact.phone)
-        )
+        # Re-resolvable target so any rotated account can reach the contact.
+        target = contact_service.send_identifier(contact)
         if not target:
             return {"ok": False, "error": "no_target"}
         proxy = await db.get(Proxy, account.proxy_id) if account.proxy_id else None
