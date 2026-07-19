@@ -507,6 +507,7 @@ Append-only record of updates (newest at the bottom).
 - **2026-07-16** — **§15.2.f added — load a backup from a previously downloaded file.** Purely **additive** (no existing function changed): `backup.save_uploaded_backup()` validates the upload is a real CRM archive (`manifest.json` present + sane scope) **before** accepting it, enforces `BACKUP_MAX_UPLOAD_MB` (default 500), stores it under a fresh collision-safe name so it sorts newest and **is never pruned away** (upload deliberately does not prune), and records the archive's **original** creation time for display; restoring it then uses the **existing** restore flow untouched. New Admin-only, audit-logged `POST /api/backups/upload` (multipart). `BackupOut` gains two optional fields (`original_created_at`, `uploaded`) — additive, so existing archives still serialise. Frontend: a **"Load a backup file"** card in Settings (file picker → validated → listed), and the list marks loaded archives with an **uploaded** badge plus "made \<original time\>". **Verified:** 187 pytest pass (6 new: download→delete→re-upload→restore round-trip with the original time preserved, reject non-archive, reject tar.gz without a manifest, reject empty/oversized, upload survives `keep_last=1`, manager-403); frontend builds; **browser E2E** — the card renders, and a created backup was downloaded, deleted server-side, loaded back from the file (201, `uploaded=true`, original time matched) and **restored** (sessions+settings+database), showing the uploaded badge. No console errors. **Not yet deployed to the VPS** (awaiting an explicit deploy request). Note for deploy: nginx's `client_max_body_size 25m` on the CRM site caps uploads — raise it if archives exceed that.
 - **2026-07-16** — **Bug fix: could not message a phone contact (engine 500) — a follow-up to §15.1.a.** Sending to a username contact worked but a **phone** contact failed everywhere (Contacts/Inbox/Sender/Campaigns) with `engine error 500`. Root cause: `message_target()` returned the raw phone, and a phone **saved without a leading `+`** (e.g. `8801646562267`) is indistinguishable from a Telegram user id — so `coerce_target` made it an `int`, Telethon read it as `PeerUser(user_id=8801646562267)`, and `send_message` raised `Could not find the input entity` (uncaught → 500). Telegram cannot message a raw phone at all; it must first be **imported** to resolve it to a user. Fix (three parts): (1) engine `actions.resolve_for_send()` — a `+phone` target is now imported via `ImportContactsRequest` to get the user entity before sending (mirrors the existing phone-lead resolver); reused by `send_dm`/`send_file`/`send_media`; a phone with no Telegram account returns a clean `{sent: False, error: "no Telegram account …"}`. (2) those three now also catch **any** send failure and return it instead of raising, so the engine **never 500s** on a bad recipient. (3) phones are made unambiguous: `normalize_phone()` always keeps a leading `+`, `message_target()` prefixes `+` defensively, and **migration `0015`** back-fills a `+` onto existing digit-only phones (portable `'+' || phone` update). **Verified:** 194 pytest pass (10 new: `send_dm` imports+sends a `+phone` to the resolved user, no-Telegram → clean error, generic failure never raises, numeric id passes through, `send_media` resolves a phone, `resolve_for_send` passthrough, `normalize_phone` adds `+`, and the Contacts message API sends a `+`-prefixed target); migration `0015` up/down on SQLite verified to rewrite `8801646562267 → +8801646562267` while leaving `+14155550123` untouched. Engine-only Telethon `ImportContacts` not live-tested locally (needs a real account). **Not yet deployed to the VPS** (awaiting an explicit deploy request).
 - **2026-07-16** — **Bug fix (part 2): phone contact sent from one account but not the others.** Live logs showed two variants — `Cannot find any entity corresponding to "+8801646562267"` (unresolved phone) **and** `Could not find the input entity for PeerUser(user_id=855963265073)` (a **resolved** contact). Root cause of the second: a Telegram entity's **access-hash is per-account (per-session)** — a cached `telegram_user_id` can only be messaged by the one account that resolved it; sending it from any other account fails. That's why "one account worked, the rest 500'd" (the working account is the one that had resolved/imported the lead). Not privacy — session-local entity caching. Fix: a shared `contacts.send_identifier(contact)` now **prefers a re-resolvable identifier** — `@username` (publicly resolvable by any account) then `+phone` (imported per-account by the part-1 fix) — and only falls back to the numeric id when there's neither. Applied to the Contacts message path (`message_target` is now an alias), **`sender.build_executor`**, and **`campaigns._execute_target`** (both previously preferred the id, so account rotation hit the same wall). **Verified:** 195 pytest pass (1 new: `send_identifier` ordering — a resolved phone lead still targets `+phone`, `@username` beats the id, bare phone gains `+`, id only as last resort); no circular imports. **Not yet deployed to the VPS.**
+- **2026-07-20** — **§15.3 done — Contacts Module UX & Management Upgrade.** A non-breaking modernization of the Contacts page: the pipeline **stage system is untouched** (same six values, same "Set stage" behaviour) and Pipeline/Inbox/Campaigns/Analytics/Sender were not modified. **Backend:** migration `0016` adds a nullable `contacts.notes` (Text). `services/contacts.py` — new `DuplicateContact` + `find_conflict()` (phone & username unique), `create_contact` now 409s on a conflict, a new `edit_contact()` (normalises phone/username, enforces uniqueness excluding self, keeps `lead_type` in sync, allows clearing a field), `import_contacts()` **now UPDATES a matched contact instead of skipping the duplicate** (returns `imported`/`updated`/`rejected_no_consent`/`invalid`/`errors`/`total`, wraps each row so one bad row can't abort the batch), `count_contacts()` + `list_contacts()` extended with `lead_type`/`consent`/`limit`/`offset` filters and search over **source** too, and CSV/XLSX exporters (`contacts_to_csv`/`contacts_to_xlsx`, columns name/phone/username/source/stage/resolution/consent/created_at). `api/contacts.py` — `GET /api/contacts` sets an **`X-Total-Count`** header (unpaginated total) so lists stay a plain array (Pipeline/Groups, which call it without `limit`, are unaffected); new `GET /api/contacts/export` (csv|xlsx; `ids=` selected, else filtered), `POST /api/contacts/bulk/consent` and `POST /api/contacts/bulk/unresolve`; PATCH routes identity fields through `edit_contact` (409/422) while stage/consent/assignment keep the old generic path. `ContactOut`/`ContactCreate`/`ContactUpdate` gain `notes`; `ContactUpdate` gains editable `phone`/`username`; `ImportResult` gains `updated`/`errors`. **Frontend:** Contacts page rebuilt — modern table (initials avatar, Name + @username + Phone shown together and never hidden, rounded stage/resolution badges, sticky header, hover, row-select highlight), debounced search + combining filters (stage/type/resolution/consent/source with a datalist), quick-action **icon** buttons (💬 Message / 🔄 Resolve / ✏️ Edit / 🗑️ Delete) with tooltips, an **Edit Contact** modal (`ContactEditModal.tsx`; name/phone/username/source/stage/consent/notes; ✏️ or double-click; saves in place), a **Bulk actions** dropdown (change stage, mark/remove consent, resolve/unresolve, export selected, delete-with-confirm) with select-page / select-all-matching / clear, an **Export ▾** menu (all/filtered · CSV/Excel), an import summary chip row, **pagination** (rows 10/25/50/100 + "Showing X–Y of N"), an **empty state**, and **loading skeletons**. `api/client.ts` adds `listPage` (reads `X-Total-Count`), `exportFile`, `bulkConsent`/`bulkResolve`/`bulkUnresolve`, and `notes`. **Verified:** 203 pytest pass (8 new: dup phone/username 409, import updates-not-duplicates, edit fields incl. notes, edit-into-duplicate 409, bulk consent+unresolve, CSV+XLSX export, pagination + total header); migration `0016` up/down on SQLite; `npm run build` (tsc clean); **browser E2E** against a 30-contact seed — rendered the modern list with avatars + "Showing 1–25 of 30", filtered to stage=customer (5), edited a contact's name+notes (persisted via API incl. `notes`), got "Phone number already exists." on a duplicate add, bulk-moved 5 customers → replied (list emptied → empty state), and exported CSV; no console errors. **Deployed to the VPS 2026-07-20** (backend files synced + `alembic upgrade head` to `0016` + containers recreated + SPA rebuilt); GitHub push deferred at the user's request.
 
 ---
 
@@ -547,6 +548,14 @@ CRM in Docker under `/opt/telegram-crm`).
   - [x] 15.2.d **Delete** a backup from the server — done 2026-07-16 (see §14)
   - [x] 15.2.e **Auto-backup on/off** + schedule (daily, or every N days) — done 2026-07-16 (see §14)
   - [x] 15.2.f **Load a backup file** — upload a previously downloaded archive back onto the server, then Restore it — done 2026-07-16 (see §14)
+- [x] **15.3 Contacts Module UX & Management Upgrade** — done 2026-07-20 (see §14); non-breaking (stage system, Pipeline/Inbox/Campaigns/Analytics/Sender untouched)
+  - [x] 15.3.a Modern contact list — avatar (initials), Name + @username + Phone shown together, rounded badges, sticky header, hover, responsive
+  - [x] 15.3.b **Edit Contact** — name / phone / username / source / stage / consent / **notes**; open via ✏️ or double-click; saves without a page refresh
+  - [x] 15.3.c **Duplicate prevention** — phone & username unique (409 "Phone number already exists." / "Username already exists." on create + edit); **Import now UPDATES** an existing match instead of duplicating
+  - [x] 15.3.d **Import summary** (imported / updated / no-consent / invalid / errors) + **Export** CSV & Excel (all / filtered / selected)
+  - [x] 15.3.e Better search (name / username / phone / source, debounced) + filters (stage / lead type / resolution / consent / source) that combine
+  - [x] 15.3.f **Bulk actions** — change stage, mark/remove consent, resolve/unresolve, export, delete (confirm); select current page / all matching / clear
+  - [x] 15.3.g Pagination (rows 10/25/50/100, "Showing X–Y of N"), empty state, loading skeletons
 
 ### 15.1 Inbox & messaging overhaul
 
@@ -706,3 +715,991 @@ Admin-only; size-capped by `BACKUP_MAX_UPLOAD_MB`.
 > **Security note for §15.2:** backup archives include Telethon session files and full DB
 > data — treat them as top-secret. All backup/restore/download/delete endpoints are
 > **Admin-only**, served over HTTPS, and never exposed publicly.
+
+
+### 15.3 — Contacts Module UX & Management Upgrade (Modern CRM Experience)
+
+## Objective
+
+Upgrade the existing **Contacts** page to provide a modern CRM experience while **keeping all existing functionality exactly as it is**.
+
+This phase is only a UI/UX enhancement and adds missing contact management features.
+
+---
+
+# Critical Requirements
+
+- Do NOT remove any existing feature.
+- Do NOT change any existing business logic.
+- Do NOT change existing APIs unless absolutely required.
+- Do NOT modify other CRM modules.
+- Everything outside the Contacts page must continue working exactly as before.
+
+---
+
+# 1. Keep Existing Stage System (VERY IMPORTANT)
+
+The current Contact Stage system is already connected with:
+
+- Pipeline
+- Inbox
+- Campaigns
+- Analytics
+- Sender
+- CRM Automation
+
+Therefore it MUST remain exactly as it is.
+
+Keep these exact values:
+
+- new
+- contacted
+- replied
+- joined
+- customer
+- opted_out
+
+Requirements:
+
+- Do NOT rename stages.
+- Do NOT add new stages.
+- Do NOT remove stages.
+- Do NOT change database values.
+- Do NOT change API values.
+- Do NOT change existing automation.
+- Keep the current "Set Stage" dropdown functionality exactly the same.
+- The Edit Contact modal must use this exact stage list.
+
+Only improve:
+
+- dropdown styling
+- spacing
+- badges
+- colors
+- icons
+
+Functionality must remain 100% backward compatible.
+
+---
+
+# 2. Modern Contact List
+
+Redesign the contacts table to look like a modern CRM (HubSpot / GoHighLevel style).
+
+Each row should display:
+
+- Checkbox
+- Avatar (generated from initials)
+- Contact Name
+- Telegram Username
+- Phone Number
+- Lead Type
+- Stage Badge
+- Resolution Badge
+- Consent
+- Source
+- Created Date
+- Quick Actions
+
+Display format:
+
+If Name exists:
+
+Ahmed Khan
+@ahmedkhan
++923001234567
+
+If Name is empty:
+
+@ahmedkhan
++923001234567
+
+If Username is empty:
+
+Ahmed Khan
++923001234567
+
+If only phone exists:
+
++923001234567
+
+Always display username if available.
+
+Never hide the username.
+
+---
+
+# 3. Edit Contact
+
+Add a complete Edit Contact feature.
+
+Open by:
+
+- Edit button
+- Double-click row
+
+Modal fields:
+
+- Name
+- Phone
+- Username
+- Source
+- Stage
+- Consent
+
+Future-ready field:
+
+- Notes
+
+Save changes without refreshing the page.
+
+---
+
+# 4. Duplicate Prevention
+
+A contact must only exist once.
+
+Phone numbers must be unique.
+
+Usernames must be unique.
+
+Validation:
+
+If phone already exists:
+
+"Phone number already exists."
+
+If username already exists:
+
+"Username already exists."
+
+During Import:
+
+If a contact already exists:
+
+- Update the existing record
+- Never create duplicate contacts
+
+---
+
+# 5. Import Improvements
+
+Keep existing Import feature.
+
+Enhance it with:
+
+- Import progress
+- Better validation
+- Better error handling
+- Import summary
+
+Example:
+
+Imported: 150
+
+Updated: 20
+
+Skipped: 5
+
+Duplicates Updated: 18
+
+Errors: 2
+
+Duplicate contacts should UPDATE existing records instead of creating new ones.
+
+---
+
+# 6. Export Contacts
+
+Add Export button beside Import.
+
+Support:
+
+- CSV
+- Excel (.xlsx)
+
+Export options:
+
+- Export All Contacts
+- Export Selected Contacts
+- Export Filtered Contacts
+
+Export fields:
+
+- Name
+- Phone
+- Username
+- Source
+- Stage
+- Resolution
+- Consent
+- Created Date
+
+---
+
+# 7. Better Bulk Selection
+
+Improve multi-selection.
+
+Add:
+
+- Select All Contacts
+- Select Current Page
+- Clear Selection
+
+Display:
+
+"15 Contacts Selected"
+
+instead of
+
+"15 selected"
+
+---
+
+# 8. Bulk Actions
+
+Create a Bulk Actions dropdown.
+
+Actions:
+
+- Change Stage
+- Delete
+- Export Selected
+- Mark Consent
+- Remove Consent
+- Resolve Contacts
+- Unresolve Contacts
+
+Delete should ask confirmation.
+
+Example:
+
+Delete 25 selected contacts?
+
+Cancel
+
+Delete
+
+---
+
+# 9. Better Search
+
+Keep existing search.
+
+Improve it to search:
+
+- Name
+- Username
+- Phone
+- Source
+
+Search should update instantly.
+
+---
+
+# 10. Better Filters
+
+Keep current Stage filter.
+
+Add filters for:
+
+- Lead Type
+- Resolution Status
+- Consent
+- Source
+
+Filters should work together.
+
+---
+
+# 11. Quick Actions
+
+Replace large action buttons with modern icon buttons.
+
+Actions:
+
+- Message
+- Resolve
+- Edit
+- Delete
+
+Show tooltips on hover.
+
+---
+
+# 12. Table Improvements
+
+Improve the table without changing functionality.
+
+Add:
+
+- Sticky table header
+- Better spacing
+- Better typography
+- Hover effect
+- Rounded badges
+- Responsive layout
+- Cleaner buttons
+- Better row spacing
+
+No changes outside this page.
+
+---
+
+# 13. Empty State
+
+If there are no contacts, show a modern empty state.
+
+Example:
+
+No contacts found.
+
+Import contacts
+
+or
+
+Add your first contact.
+
+---
+
+# 14. Loading States
+
+Show loading skeletons while:
+
+- Loading contacts
+- Searching
+- Importing
+- Exporting
+- Updating
+
+Avoid blank screens.
+
+---
+
+# 15. Pagination Improvements
+
+Keep existing pagination.
+
+Add:
+
+Rows per page:
+
+- 10
+- 25
+- 50
+- 100
+
+Show:
+
+Showing 26–50 of 1,248 contacts
+
+---
+
+# 16. Performance
+
+Optimize for large datasets.
+
+Support:
+
+- 10,000+ contacts
+- Fast search
+- Fast pagination
+- Fast bulk actions
+
+---
+
+# 17. Acceptance Criteria
+
+This phase is complete when:
+
+✅ All existing features continue working exactly the same.
+
+✅ No existing business logic is changed.
+
+✅ Contact Stage system remains exactly the same.
+
+✅ Pipeline continues working.
+
+✅ Inbox continues working.
+
+✅ Campaigns continue working.
+
+✅ Analytics continues working.
+
+✅ Sender continues working.
+
+✅ Edit Contact works.
+
+✅ Import works.
+
+✅ Export works.
+
+✅ Duplicate contacts cannot be created.
+
+✅ Phone numbers are unique.
+
+✅ Usernames are unique.
+
+✅ Duplicate imports update existing contacts instead of creating new ones.
+
+✅ Contact rows display:
+
+- Name
+- Username
+- Phone
+
+at the same time.
+
+✅ Select All works.
+
+✅ Select Current Page works.
+
+✅ Bulk Actions work.
+
+✅ Delete confirmation works.
+
+✅ Modern CRM UI.
+
+✅ Responsive design.
+
+✅ No regressions anywhere else in the CRM.
+
+This phase is a non-breaking enhancement to the existing Contacts module. It only modernizes the UI and adds missing contact management features while preserving 100% compatibility with the existing CRM.
+
+
+### 15.4 — Sticky Top Navigation & User/Staff Profile Management
+
+## Objective
+
+Enhance the CRM's top navigation and Staff module by adding profile management features while keeping all existing functionality unchanged.
+
+This phase only improves the user experience and adds account management capabilities.
+
+---
+
+# Critical Requirements
+
+- Do NOT remove any existing functionality.
+- Do NOT change authentication logic.
+- Do NOT modify user roles or permissions.
+- Do NOT affect any other CRM modules.
+- Keep the current design language consistent.
+- All existing login and staff management functionality must continue working exactly as before.
+
+---
+
+# 1. Sticky Top Navigation Bar
+
+The top navigation bar containing:
+
+- Telegram Marketing CRM
+- Theme Toggle
+- Logged-in User
+- Logout Button
+
+must always remain visible.
+
+Requirements:
+
+- Sticky at the top of the page.
+- Remains visible while scrolling.
+- Same width as the content area.
+- Maintain existing styling.
+- Add a subtle shadow or border when scrolling.
+- Smooth scrolling behavior.
+- High z-index so it stays above all page content.
+- Must work on all CRM pages.
+
+No changes to the sidebar.
+
+---
+
+# 2. Logged-in User Profile Menu
+
+The logged-in user section in the top-right corner should become clickable.
+
+Clicking it should open a dropdown or modal with:
+
+- My Profile
+- Change Password
+- Logout
+
+---
+
+# 3. My Profile
+
+Create a Profile modal/page for the currently logged-in user.
+
+Editable fields:
+
+- Full Name
+- Email Address
+
+Read-only fields:
+
+- Role
+- Account Status
+- Created Date
+
+Validation:
+
+- Email must be unique.
+- Name cannot be empty.
+
+Save without requiring logout.
+
+---
+
+# 4. Change Password
+
+Add a secure Change Password form.
+
+Fields:
+
+- Current Password
+- New Password
+- Confirm New Password
+
+Validation:
+
+- Current password must be correct.
+- New password minimum 8 characters.
+- Confirm password must match.
+
+Show success message after update.
+
+Do NOT log the user out after changing the password.
+
+---
+
+# 5. Staff Management Improvements
+
+Keep the current Staff page.
+
+Add an Edit action for every staff member.
+
+Each staff row should include:
+
+- Edit
+- Reset Password (optional)
+- Activate / Deactivate (future-ready)
+
+Do NOT remove any existing columns.
+
+---
+
+# 6. Edit Staff Member
+
+Clicking Edit opens a modal.
+
+Editable fields:
+
+- Full Name
+- Email
+- Password (optional)
+- Role (only if current user has permission)
+
+If password is left empty:
+
+- Keep the existing password.
+
+If a new password is entered:
+
+- Update the password.
+
+Validation:
+
+- Email must be unique.
+- Name is required.
+- Password minimum 8 characters if provided.
+
+---
+
+# 7. Staff Table Improvements
+
+Keep the current table.
+
+Add:
+
+- Action column
+- Edit icon
+- Better spacing
+- Hover effect
+- Sticky header
+- Responsive layout
+
+No other functionality should change.
+
+---
+
+# 8. Account Security
+
+Prevent duplicate email addresses.
+
+Validation:
+
+If email already exists:
+
+"This email address is already in use."
+
+Passwords must always be securely hashed.
+
+Never display existing passwords.
+
+---
+
+# 9. User Experience
+
+After updating:
+
+- Profile
+- Staff Member
+- Password
+
+Show a success notification.
+
+Example:
+
+Profile updated successfully.
+
+Password changed successfully.
+
+Staff member updated successfully.
+
+No page refresh should be required.
+
+---
+
+# 10. Acceptance Criteria
+
+This phase is complete when:
+
+✅ The top navigation bar is sticky on every page.
+
+✅ The CRM title remains visible while scrolling.
+
+✅ Logged-in users can edit their own profile.
+
+✅ Logged-in users can change their password.
+
+✅ Staff members can be edited.
+
+✅ Staff email can be updated.
+
+✅ Staff full name can be updated.
+
+✅ Staff password can be changed.
+
+✅ Email addresses remain unique.
+
+✅ Existing authentication continues working.
+
+✅ Existing permissions continue working.
+
+✅ No existing functionality is removed.
+
+✅ No regressions are introduced.
+
+This phase is a non-breaking enhancement that adds profile management and improves the CRM navigation while maintaining full backward compatibility with the existing authentication, permissions, and staff management system.
+
+### 15.5 — Inbox UX & Performance Upgrade (Meta Business Suite Style)
+
+## Objective
+
+Modernize the Inbox to provide a Meta Business Suite–style experience while keeping all existing Telegram messaging logic, APIs, workflows, and CRM integrations unchanged.
+
+---
+
+## Critical Requirements
+
+- Do NOT change Telegram messaging logic.
+- Do NOT change conversation storage.
+- Do NOT change contact stage workflow.
+- Do NOT modify Contacts, Pipeline, Sender, Campaigns, or other modules.
+- Only improve the Inbox UI, contact management, responsiveness, and performance.
+
+---
+
+## 1. Modern Inbox Layout
+
+Redesign the Inbox similar to Meta Business Suite.
+
+Layout:
+
+- Left: Conversation List
+- Center: Conversation
+- Right: Contact Information
+
+Keep all existing functionality.
+
+---
+
+## 2. Sticky Conversation
+
+Inside the conversation panel:
+
+### Sticky Header
+
+Always visible:
+
+- Contact Name
+- Stage
+- Archive
+- Delete
+
+### Sticky Composer
+
+Always visible:
+
+- Attachment Button
+- Message Input
+- Send Button
+
+Only the message history should scroll.
+
+---
+
+## 3. Smart Message Loading
+
+When opening a conversation:
+
+- Automatically open at the newest message.
+- Scroll to the bottom by default.
+- Load only the latest **12 messages** initially.
+- Show a **Load Older Messages** button at the top.
+- Each click loads the next batch of older messages.
+- Preserve scroll position while loading.
+
+This keeps conversations loading fast.
+
+---
+
+## 4. Optimized Conversation List
+
+The left conversation list should have its own scrollbar.
+
+Performance rules:
+
+- Load only the latest **20 conversations** initially.
+- Show **Load More Conversations** at the bottom.
+- Clicking loads the next batch.
+- Preserve scroll position.
+- Existing search and filters continue working.
+
+This prevents heavy page loads.
+
+---
+
+## 5. Contact Management
+
+Add **Edit Contact** inside the Contact panel.
+
+Editable fields:
+
+- Name
+- Phone
+- Username
+- Source
+- Stage
+- Consent
+
+Validation:
+
+- Phone must remain unique.
+- Username must remain unique.
+
+Updates should instantly sync with the Contacts module.
+
+---
+
+## 6. Save Contact Improvements
+
+Keep the existing Save Contact feature.
+
+Allow entering:
+
+- Name
+- Phone
+- Username
+- Source
+- Stage
+- Consent
+
+If the contact already exists:
+
+- Update the existing contact.
+- Never create duplicate contacts.
+
+---
+
+## 7. Search Inside Conversation
+
+Inside the Contact panel add:
+
+**Search in Conversation**
+
+Search only within the currently opened conversation.
+
+Support:
+
+- Message text
+- Partial words
+- Future-ready date search
+
+Matching messages should be highlighted and automatically scrolled into view.
+
+---
+
+## 8. Conversation List Improvements
+
+Each conversation should display:
+
+- Avatar
+- Contact Name
+- Username (if available)
+- Last Message
+- Timestamp
+- Stage Badge
+- Unread Count
+- Connected Account
+
+Highlight the active conversation.
+
+---
+
+## 9. Contact Panel Improvements
+
+Improve the design only.
+
+Display:
+
+- Avatar
+- Name
+- Username
+- Telegram ID
+- Phone
+- Stage
+- Source
+- Consent
+- Connected Account
+
+Quick actions:
+
+- Edit Contact
+- Copy Username
+- Copy Phone
+
+---
+
+## 10. Fully Responsive Inbox
+
+The entire Inbox must be fully responsive on desktop, tablet, and mobile.
+
+### Desktop
+
+- Three-column layout.
+- Sticky header.
+- Sticky composer.
+- Independent scrolling for conversations and message history.
+
+### Tablet
+
+- Automatically adjust panel widths.
+- Maintain sticky behavior.
+
+### Mobile
+
+Modern messaging experience similar to:
+
+- Meta Business Suite
+- WhatsApp
+- Telegram
+- Messenger
+
+Requirements:
+
+- Conversation list opens first.
+- Opening a conversation shows the chat full-screen.
+- Contact details open as a separate slide-over panel or drawer.
+- Back button returns to the conversation list.
+- No horizontal scrolling.
+- Touch-friendly spacing and buttons.
+
+---
+
+## 11. Responsive Message Composer
+
+The bottom message composer must adapt to every screen size.
+
+Requirements:
+
+- Width automatically adjusts with screen size.
+- Input grows naturally for longer messages.
+- Composer always remains visible.
+
+### Mobile Keyboard Behavior
+
+When the mobile keyboard appears:
+
+- The message composer should automatically move above the keyboard.
+- The input field must never be hidden behind the keyboard.
+- The latest messages should remain visible while typing.
+- The conversation should resize smoothly without layout jumps.
+
+The typing experience should feel like modern messaging apps such as WhatsApp, Telegram, Messenger, and Meta Business Suite.
+
+---
+
+## 12. Performance
+
+Optimize for large inboxes.
+
+Requirements:
+
+- Fast conversation switching.
+- Latest messages load first.
+- Older messages load on demand.
+- Conversation list loads in batches.
+- Smooth scrolling.
+- No unnecessary page refreshes.
+
+---
+
+## Acceptance Criteria
+
+✅ Existing Inbox functionality remains unchanged.
+
+✅ Conversation opens at the newest message.
+
+✅ Latest 12 messages load initially.
+
+✅ Older messages load only on demand.
+
+✅ Conversation list loads only 20 conversations initially.
+
+✅ More conversations load when requested.
+
+✅ Sticky conversation header.
+
+✅ Sticky responsive message composer.
+
+✅ Message composer remains visible while scrolling.
+
+✅ Message composer moves above the mobile keyboard.
+
+✅ Entire Inbox is fully responsive on desktop, tablet, and mobile.
+
+✅ Contact editing works.
+
+✅ Save Contact supports full contact details.
+
+✅ Contact updates sync across the CRM.
+
+✅ Search inside the current conversation works.
+
+✅ No duplicate contacts.
+
+✅ Modern Meta Business Suite–style interface.
+
+✅ No regressions introduced.

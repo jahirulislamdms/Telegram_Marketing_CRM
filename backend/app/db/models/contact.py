@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     String,
+    Text,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -45,6 +46,8 @@ class Contact(Base):
         String(20), nullable=False, default="pending", server_default="pending"
     )
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    # Free-form CRM notes (§15.3); optional, unbounded.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     stage: Mapped[str] = mapped_column(
         String(20), nullable=False, default="new", server_default="new"
     )

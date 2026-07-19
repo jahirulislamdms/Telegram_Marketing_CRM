@@ -24,12 +24,17 @@ This is the source of truth for progress. Do it as part of the same task, every 
 
 ## Current status
 
-**ALL 13 phases (0–12) are DONE — the v1 build is complete** and is **deployed to the
-Hetzner VPS** (`https://crm.46-225-170-211.nip.io`, at commit `93a0f43`; see
-[[vps-deployment-target]] / the memory file). A **post-v1 update phase is now defined in
-spec §15** (15.1 Inbox & messaging overhaul + 15.2 Backup/Restore center) — **not started**.
-Always confirm current status from spec **§13/§14/§15** — they are authoritative.
-`BUILD_MEMORY.md` has the condensed per-phase record.
+**ALL 13 build phases (0–12) AND the post-v1 update phase §15 (15.1 a–j + 15.2 a–f + 15.3)
+are DONE and DEPLOYED** to the Hetzner VPS (`https://crm.46-225-170-211.nip.io`), migrations
+**0001–0016**, **203 pytest passing**. **§15.3 (Contacts UX upgrade) is committed LOCALLY
+and deployed to the VPS but NOT yet pushed to GitHub** (the user asked to defer the push —
+so as of §15.3, GitHub is at `b848e1f` while local + VPS are ahead by one commit). When the
+user says "push", `git push`, then on the VPS `git fetch && git reset --hard origin/main`
+(the §15.3 files were scp'd into the tree, so a hard reset cleanly re-syncs; untracked
+`docker-compose.vps.yml`/`frontend-dist/`/`backups/` are left alone). See [[phase-build-status]]
+/ [[vps-deployment-target]]. **Next up:** the user is also drafting **§15.4 — Sticky Top Nav &
+Profile Management** into the spec (uncommitted-in-spirit WIP — read §15.4, do NOT clobber it).
+Always confirm current status from spec **§13/§14/§15** — authoritative.
 
 **Maintenance workflow (post-v1, §15):** fixes/enhancements land in the **local repo +
 GitHub first**; the **VPS is updated only on an explicit "deploy" request** (never as a

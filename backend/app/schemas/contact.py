@@ -19,6 +19,7 @@ class ContactOut(BaseModel):
     telegram_user_id: int | None
     resolution_status: str
     source: str | None
+    notes: str | None = None
     stage: str
     consent: bool
     opted_out: bool
@@ -35,6 +36,7 @@ class ContactCreate(BaseModel):
     phone: str | None = Field(default=None, max_length=32)
     username: str | None = Field(default=None, max_length=255)
     source: str | None = Field(default=None, max_length=120)
+    notes: str | None = None
     consent: bool = False
     tags: list[str] = Field(default_factory=list)
 
@@ -47,7 +49,10 @@ class ContactCreate(BaseModel):
 
 class ContactUpdate(BaseModel):
     name: str | None = None
+    phone: str | None = None
+    username: str | None = None
     source: str | None = None
+    notes: str | None = None
     stage: ContactStage | None = None
     consent: bool | None = None
     opted_out: bool | None = None
@@ -58,9 +63,11 @@ class ContactUpdate(BaseModel):
 
 class ImportResult(BaseModel):
     imported: int
+    updated: int = 0
     skipped_duplicates: int
     rejected_no_consent: int
     invalid: int
+    errors: int = 0
     total: int
 
 
@@ -93,3 +100,8 @@ class BulkAssign(BaseModel):
 
 class BulkIds(BaseModel):
     contact_ids: list[int] = Field(min_length=1)
+
+
+class BulkConsent(BaseModel):
+    contact_ids: list[int] = Field(min_length=1)
+    consent: bool

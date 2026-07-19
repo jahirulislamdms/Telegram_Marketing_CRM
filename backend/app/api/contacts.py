@@ -13,6 +13,7 @@ from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.contact import (
     BulkAssign,
+    BulkConsent,
     BulkIds,
     BulkResolveResult,
     BulkStageUpdate,
@@ -84,9 +85,62 @@ async def import_contacts(
         type="contact.import",
         actor_type="user",
         actor_id=user.id,
-        meta={k: result[k] for k in ("imported", "skipped_duplicates", "rejected_no_consent")},
+        meta={k: result[k] for k in ("imported", "updated", "rejected_no_consent", "errors")},
     )
     return ImportResult(**result)
+
+
+# --------------------------------------------------------------------- export ---
+
+
+@router.get("/export")
+async def export_contacts(
+    format: str = Query(default="csv", pattern="^(csv|xlsx)$"),
+    ids: str | None = Query(default=None, description="comma-separated ids to export"),
+    stage: str | None = Query(default=None),
+    source: str | None = Query(default=None),
+    resolution: str | None = Query(default=None),
+    lead_type: str | None = Query(default=None),
+    consent: bool | None = Query(default=None),
+    q: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    agent_filter = None if _is_manager(user) else user.id
+    if ids:
+        wanted = [int(x) for x in ids.split(",") if x.strip().lstrip("-").isdigit()]
+        contacts = []
+        for cid in wanted:
+            contact = await contact_service.get_by_id(db, cid)
+            if contact is None:
+                continue
+            if agent_filter is not None and contact.assigned_agent_id != agent_filter:
+                continue
+            contacts.append(contact)
+    else:
+        contacts = await contact_service.list_contacts(
+            db,
+            assigned_agent_id=agent_filter,
+            stage=stage,
+            source=source,
+            resolution=resolution,
+            lead_type=lead_type,
+            consent=consent,
+            q=q,
+        )
+    if format == "xlsx":
+        body = contact_service.contacts_to_xlsx(contacts)
+        media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = "contacts.xlsx"
+    else:
+        body = contact_service.contacts_to_csv(contacts)
+        media = "text/csv"
+        filename = "contacts.csv"
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # ------------------------------------------------------------ bulk actions ---
@@ -116,6 +170,24 @@ async def bulk_resolve(
         else:
             failed += 1
     return BulkResolveResult(resolved=resolved, no_telegram=no_tg, failed=failed)
+
+
+@router.post("/bulk/unresolve", response_model=int)
+async def bulk_unresolve(
+    payload: BulkIds,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    return await contact_service.bulk_unresolve(db, payload.contact_ids)
+
+
+@router.post("/bulk/consent", response_model=int)
+async def bulk_consent(
+    payload: BulkConsent,
+    _: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> int:
+    return await contact_service.bulk_set_consent(db, payload.contact_ids, payload.consent)
 
 
 @router.post("/bulk/stage", response_model=int)
@@ -174,26 +246,37 @@ async def bulk_delete(
 
 @router.get("", response_model=list[ContactOut])
 async def list_contacts(
+    response: Response,
     stage: str | None = Query(default=None),
     source: str | None = Query(default=None),
     resolution: str | None = Query(default=None),
+    lead_type: str | None = Query(default=None),
+    consent: bool | None = Query(default=None),
     q: str | None = Query(default=None),
     in_destination: int | None = Query(default=None),
     not_in_destination: int | None = Query(default=None),
+    limit: int | None = Query(default=None, ge=1, le=1000),
+    offset: int | None = Query(default=None, ge=0),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
     agent_filter = None if _is_manager(user) else user.id
-    return await contact_service.list_contacts(
-        db,
+    filters = dict(
         assigned_agent_id=agent_filter,
         stage=stage,
         source=source,
         resolution=resolution,
+        lead_type=lead_type,
+        consent=consent,
         q=q,
         in_destination=in_destination,
         not_in_destination=not_in_destination,
     )
+    # Expose the unpaginated total so the UI can render "Showing X–Y of N".
+    total = await contact_service.count_contacts(db, **filters)
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+    return await contact_service.list_contacts(db, limit=limit, offset=offset, **filters)
 
 
 @router.post("", response_model=ContactOut, status_code=status.HTTP_201_CREATED)
@@ -202,15 +285,19 @@ async def create_contact(
     _: User = Depends(require_manager),
     db: AsyncSession = Depends(get_db),
 ) -> ContactOut:
-    return await contact_service.create_contact(
-        db,
-        name=payload.name,
-        phone=payload.phone,
-        username=payload.username,
-        source=payload.source,
-        consent=payload.consent,
-        tags=payload.tags,
-    )
+    try:
+        return await contact_service.create_contact(
+            db,
+            name=payload.name,
+            phone=payload.phone,
+            username=payload.username,
+            source=payload.source,
+            notes=payload.notes,
+            consent=payload.consent,
+            tags=payload.tags,
+        )
+    except contact_service.DuplicateContact as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
 
 
 @router.get("/{contact_id}", response_model=ContactOut)
@@ -242,7 +329,21 @@ async def update_contact(
         fields["stage"] = payload.stage.value
         if payload.stage.value == "opted_out":
             fields["opted_out"] = True
-    await contact_service.update_contact(db, contact, **fields)
+
+    # Identity fields go through edit_contact (normalise + uniqueness + lead_type);
+    # the rest (stage/consent/assignment/tags) via the generic setter, unchanged.
+    edit_keys = ("name", "phone", "username", "source", "notes")
+    edit_updates = {k: fields.pop(k) for k in edit_keys if k in fields}
+    if edit_updates:
+        try:
+            await contact_service.edit_contact(db, contact, edit_updates)
+        except contact_service.DuplicateContact as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    if fields:
+        await contact_service.update_contact(db, contact, **fields)
+    await db.refresh(contact)
     return contact
 
 

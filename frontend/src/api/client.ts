@@ -326,6 +326,7 @@ export interface Contact {
   telegram_user_id: number | null
   resolution_status: string
   source: string | null
+  notes: string | null
   stage: ContactStage
   consent: boolean
   opted_out: boolean
@@ -339,9 +340,16 @@ export interface Contact {
 
 export interface ContactImportResult {
   imported: number
+  updated: number
   skipped_duplicates: number
   rejected_no_consent: number
   invalid: number
+  errors: number
+  total: number
+}
+
+export interface ContactPage {
+  items: Contact[]
   total: number
 }
 
@@ -350,6 +358,7 @@ export interface CreateContactInput {
   phone?: string | null
   username?: string | null
   source?: string | null
+  notes?: string | null
   consent: boolean
   tags?: string[]
 }
@@ -381,6 +390,18 @@ export const contactsApi = {
     const qs = new URLSearchParams(params).toString()
     return apiFetch<Contact[]>(`/contacts${qs ? `?${qs}` : ''}`)
   },
+  // Paginated list that also reads the X-Total-Count header (§15.3).
+  listPage: async (params: Record<string, string> = {}): Promise<ContactPage> => {
+    const { accessToken } = useAuth.getState()
+    const qs = new URLSearchParams(params).toString()
+    const res = await fetch(`/api/contacts${qs ? `?${qs}` : ''}`, {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    })
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
+    const items = (await res.json()) as Contact[]
+    const total = Number(res.headers.get('X-Total-Count') ?? items.length)
+    return { items, total }
+  },
   create: (data: CreateContactInput) =>
     apiFetch<Contact>('/contacts', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: Partial<Contact>) =>
@@ -407,6 +428,39 @@ export const contactsApi = {
       method: 'POST',
       body: JSON.stringify({ contact_ids }),
     }),
+  bulkConsent: (contact_ids: number[], consent: boolean) =>
+    apiFetch<number>('/contacts/bulk/consent', {
+      method: 'POST',
+      body: JSON.stringify({ contact_ids, consent }),
+    }),
+  bulkResolve: (contact_ids: number[]) =>
+    apiFetch<{ resolved: number; no_telegram: number; failed: number }>('/contacts/resolve', {
+      method: 'POST',
+      body: JSON.stringify({ contact_ids }),
+    }),
+  bulkUnresolve: (contact_ids: number[]) =>
+    apiFetch<number>('/contacts/bulk/unresolve', {
+      method: 'POST',
+      body: JSON.stringify({ contact_ids }),
+    }),
+  exportFile: async (
+    format: 'csv' | 'xlsx',
+    params: Record<string, string> = {},
+  ): Promise<void> => {
+    const { accessToken } = useAuth.getState()
+    const qs = new URLSearchParams({ ...params, format }).toString()
+    const res = await fetch(`/api/contacts/export?${qs}`, {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    })
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `contacts.${format}`
+    a.click()
+    URL.revokeObjectURL(url)
+  },
   downloadTemplate: async () => {
     const { accessToken } = useAuth.getState()
     const res = await fetch('/api/contacts/import-template', {

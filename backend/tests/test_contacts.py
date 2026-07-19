@@ -102,10 +102,13 @@ def test_import_csv_dedupe_and_consent(client, admin_token):
     )
     assert r.status_code == 200, r.text
     body = r.json()
+    # §15.3: a duplicate row now UPDATES the existing record instead of being skipped.
     assert body["imported"] == 3
-    assert body["skipped_duplicates"] == 1
+    assert body["updated"] == 1  # "Dup Phone" matched Ahmed's +923001234501 and updated it
+    assert body["skipped_duplicates"] == 0
     assert body["rejected_no_consent"] == 1
     assert body["invalid"] == 1
+    assert body["errors"] == 0
 
 
 def test_import_excel(client, admin_token):
@@ -337,3 +340,174 @@ def test_agent_sees_only_assigned(client, admin_token):
         client.get(f"/api/contacts/{other['id']}", headers=_auth(agent_token)).status_code
         == 403
     )
+
+
+# ------------------------------------------------- §15.3 Contacts UX upgrade ---
+
+
+def test_create_duplicate_phone_conflict(client, admin_token):
+    payload = {"name": "Dupe A", "phone": "+9990000153001", "consent": True}
+    r1 = client.post("/api/contacts", headers=_auth(admin_token), json=payload)
+    assert r1.status_code == 201, r1.text
+    r2 = client.post("/api/contacts", headers=_auth(admin_token), json=payload)
+    assert r2.status_code == 409
+    assert r2.json()["detail"] == "Phone number already exists."
+
+
+def test_create_duplicate_username_conflict(client, admin_token):
+    payload = {"username": "@dupe_user_153", "consent": True}
+    assert client.post("/api/contacts", headers=_auth(admin_token), json=payload).status_code == 201
+    r2 = client.post("/api/contacts", headers=_auth(admin_token), json=payload)
+    assert r2.status_code == 409
+    assert r2.json()["detail"] == "Username already exists."
+
+
+def test_import_updates_existing_instead_of_duplicating(client, admin_token):
+    first = (
+        "name,phone,username,source,consent\n"
+        "Imp One,+9990000153100,,src_a,true\n"
+    ).encode()
+    r1 = client.post(
+        "/api/contacts/import",
+        headers=_auth(admin_token),
+        files={"file": ("c.csv", first, "text/csv")},
+    )
+    assert r1.json()["imported"] == 1
+    # Re-import the same phone with a new name/source → updates, not a new row.
+    again = (
+        "name,phone,username,source,consent\n"
+        "Imp One Renamed,+9990000153100,,src_b,true\n"
+    ).encode()
+    r2 = client.post(
+        "/api/contacts/import",
+        headers=_auth(admin_token),
+        files={"file": ("c.csv", again, "text/csv")},
+    )
+    body = r2.json()
+    assert body["imported"] == 0
+    assert body["updated"] == 1
+    # Confirm the single record was updated in place.
+    listing = client.get(
+        "/api/contacts?q=9990000153100", headers=_auth(admin_token)
+    ).json()
+    assert len(listing) == 1
+    assert listing[0]["name"] == "Imp One Renamed"
+    assert listing[0]["source"] == "src_b"
+
+
+def test_edit_contact_fields(client, admin_token):
+    created = client.post(
+        "/api/contacts",
+        headers=_auth(admin_token),
+        json={"name": "Edit Me", "phone": "+9990000153200", "consent": True},
+    ).json()
+    r = client.patch(
+        f"/api/contacts/{created['id']}",
+        headers=_auth(admin_token),
+        json={
+            "name": "Edited Name",
+            "username": "@edited_153",
+            "source": "edited_src",
+            "notes": "VIP lead — call first",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Edited Name"
+    assert body["username"] == "edited_153"  # normalised (lowercase, no '@')
+    assert body["source"] == "edited_src"
+    assert body["notes"] == "VIP lead — call first"
+    assert body["phone"] == "+9990000153200"  # unchanged
+
+
+def test_edit_into_duplicate_conflicts(client, admin_token):
+    a = client.post(
+        "/api/contacts", headers=_auth(admin_token),
+        json={"username": "@edit_dupe_a153", "consent": True},
+    ).json()
+    client.post(
+        "/api/contacts", headers=_auth(admin_token),
+        json={"username": "@edit_dupe_b153", "consent": True},
+    )
+    # Renaming A's username to B's must 409.
+    r = client.patch(
+        f"/api/contacts/{a['id']}",
+        headers=_auth(admin_token),
+        json={"username": "@edit_dupe_b153"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"] == "Username already exists."
+
+
+def test_bulk_consent_and_unresolve(client, admin_token):
+    ids = []
+    for i in range(2):
+        ids.append(
+            client.post(
+                "/api/contacts", headers=_auth(admin_token),
+                json={"username": f"@bulk153_{i}", "consent": True},
+            ).json()["id"]
+        )
+    # Remove consent in bulk.
+    r = client.post(
+        "/api/contacts/bulk/consent",
+        headers=_auth(admin_token),
+        json={"contact_ids": ids, "consent": False},
+    )
+    assert r.status_code == 200 and r.json() == 2
+    for cid in ids:
+        assert client.get(f"/api/contacts/{cid}", headers=_auth(admin_token)).json()["consent"] is False
+    # Unresolve in bulk resets resolution_status.
+    r2 = client.post(
+        "/api/contacts/bulk/unresolve",
+        headers=_auth(admin_token),
+        json={"contact_ids": ids},
+    )
+    assert r2.status_code == 200 and r2.json() == 2
+    for cid in ids:
+        got = client.get(f"/api/contacts/{cid}", headers=_auth(admin_token)).json()
+        assert got["resolution_status"] == "pending"
+        assert got["telegram_user_id"] is None
+
+
+def test_export_csv_and_xlsx(client, admin_token):
+    client.post(
+        "/api/contacts", headers=_auth(admin_token),
+        json={"name": "Export One", "phone": "+9990000153300", "source": "exp153", "consent": True},
+    )
+    # CSV, filtered to our unique source so other tests' rows don't interfere.
+    rc = client.get("/api/contacts/export?format=csv&source=exp153", headers=_auth(admin_token))
+    assert rc.status_code == 200
+    assert rc.headers["content-type"].startswith("text/csv")
+    text = rc.content.decode("utf-8-sig")
+    assert "name,phone,username,source,stage,resolution,consent,created_at" in text
+    assert "+9990000153300" in text
+    # XLSX.
+    rx = client.get("/api/contacts/export?format=xlsx&source=exp153", headers=_auth(admin_token))
+    assert rx.status_code == 200
+    assert "spreadsheetml" in rx.headers["content-type"]
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(rx.content))
+    rows = list(wb.active.iter_rows(values_only=True))
+    assert rows[0][0] == "name"
+    assert any(r[1] == "+9990000153300" for r in rows[1:])
+
+
+def test_list_pagination_and_total_header(client, admin_token):
+    for i in range(5):
+        client.post(
+            "/api/contacts", headers=_auth(admin_token),
+            json={"username": f"@page153_{i}", "source": "page153", "consent": True},
+        )
+    r = client.get(
+        "/api/contacts?source=page153&limit=2&offset=0", headers=_auth(admin_token)
+    )
+    assert r.status_code == 200
+    assert r.headers["X-Total-Count"] == "5"
+    assert len(r.json()) == 2
+    # Second page.
+    r2 = client.get(
+        "/api/contacts?source=page153&limit=2&offset=4", headers=_auth(admin_token)
+    )
+    assert len(r2.json()) == 1

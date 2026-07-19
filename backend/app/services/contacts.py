@@ -27,6 +27,21 @@ class NoResolverAccount(Exception):
     """No logged-in account is available to resolve/message a contact."""
 
 
+class DuplicateContact(Exception):
+    """A contact with the same phone or username already exists (§15.3).
+
+    ``field`` is ``"phone"`` or ``"username"`` so the API can return the exact
+    message the spec asks for ("Phone number already exists." / "Username already
+    exists.").
+    """
+
+    def __init__(self, field: str) -> None:
+        self.field = field
+        label = "Phone number" if field == "phone" else "Username"
+        self.message = f"{label} already exists."
+        super().__init__(self.message)
+
+
 # ------------------------------------------------------------- normalising ---
 
 
@@ -101,68 +116,91 @@ def parse_upload(filename: str, data: bytes) -> list[dict]:
 
 
 async def import_contacts(db: AsyncSession, rows: list[dict]) -> dict:
-    existing = await db.execute(
-        select(Contact.phone, Contact.username)
-    )
-    existing_phones: set[str] = set()
-    existing_usernames: set[str] = set()
-    for phone, username in existing.all():
-        if phone:
-            existing_phones.add(phone)
-        if username:
-            existing_usernames.add(username)
+    """Import rows, **updating** any existing contact matched by phone/username
+    instead of creating a duplicate (§15.3 #4/#5).
 
-    seen_phones: set[str] = set()
-    seen_usernames: set[str] = set()
-    imported = skipped = rejected = invalid = 0
+    Returns a summary: ``imported`` (new), ``updated`` (existing rows refreshed),
+    ``rejected_no_consent``, ``invalid`` (no identifier), ``errors``, and ``total``.
+    ``skipped_duplicates`` is retained (always 0 now) for backward compatibility.
+    """
+    result = await db.execute(select(Contact))
+    by_phone: dict[str, Contact] = {}
+    by_username: dict[str, Contact] = {}
+    for c in result.scalars().all():
+        if c.phone:
+            by_phone[c.phone] = c
+        if c.username:
+            by_username[c.username] = c
+
+    imported = updated = rejected = invalid = errors = 0
 
     for row in rows:
-        name = (str(row.get("name")).strip() if row.get("name") else "") or None
-        phone = normalize_phone(row.get("phone"))
-        username = normalize_username(row.get("username"))
-        source = (str(row.get("source")).strip() if row.get("source") else "") or None
-        consent = parse_bool(row.get("consent"))
+        try:
+            name = (str(row.get("name")).strip() if row.get("name") else "") or None
+            phone = normalize_phone(row.get("phone"))
+            username = normalize_username(row.get("username"))
+            source = (str(row.get("source")).strip() if row.get("source") else "") or None
+            consent = parse_bool(row.get("consent"))
 
-        if not phone and not username:
-            invalid += 1
-            continue
-        if not consent:
-            rejected += 1
-            continue
+            if not phone and not username:
+                invalid += 1
+                continue
+            if not consent:
+                rejected += 1
+                continue
 
-        is_dup = (phone and (phone in existing_phones or phone in seen_phones)) or (
-            username and (username in existing_usernames or username in seen_usernames)
-        )
-        if is_dup:
-            skipped += 1
-            continue
+            existing = None
+            if phone and phone in by_phone:
+                existing = by_phone[phone]
+            elif username and username in by_username:
+                existing = by_username[username]
 
-        if phone:
-            seen_phones.add(phone)
-        if username:
-            seen_usernames.add(username)
-
-        db.add(
-            Contact(
-                name=name,
-                lead_type="phone" if phone else "username",
-                phone=phone,
-                username=username,
-                source=source,
-                consent=True,
-                tags=[],
-                utm={},
-            )
-        )
-        imported += 1
+            if existing is not None:
+                # Update in place — never create a duplicate.
+                if name:
+                    existing.name = name
+                if phone:
+                    existing.phone = phone
+                if username:
+                    existing.username = username
+                if source:
+                    existing.source = source
+                existing.consent = True
+                existing.lead_type = "phone" if existing.phone else "username"
+                if existing.phone:
+                    by_phone[existing.phone] = existing
+                if existing.username:
+                    by_username[existing.username] = existing
+                updated += 1
+            else:
+                contact = Contact(
+                    name=name,
+                    lead_type="phone" if phone else "username",
+                    phone=phone,
+                    username=username,
+                    source=source,
+                    consent=True,
+                    tags=[],
+                    utm={},
+                )
+                db.add(contact)
+                if phone:
+                    by_phone[phone] = contact
+                if username:
+                    by_username[username] = contact
+                imported += 1
+        except Exception:  # noqa: BLE001 — one bad row must not abort the batch
+            errors += 1
 
     await db.commit()
     total = await db.scalar(select(func.count()).select_from(Contact))
     return {
         "imported": imported,
-        "skipped_duplicates": skipped,
+        "updated": updated,
+        "skipped_duplicates": 0,
         "rejected_no_consent": rejected,
         "invalid": invalid,
+        "errors": errors,
         "total": int(total or 0),
     }
 
@@ -174,21 +212,23 @@ async def get_by_id(db: AsyncSession, contact_id: int) -> Contact | None:
     return await db.get(Contact, contact_id)
 
 
-async def list_contacts(
-    db: AsyncSession,
+def _contacts_filter(
+    stmt,
     *,
-    assigned_agent_id: int | None = None,
-    stage: str | None = None,
-    source: str | None = None,
-    resolution: str | None = None,
-    q: str | None = None,
-    in_destination: int | None = None,
-    not_in_destination: int | None = None,
-) -> list[Contact]:
+    assigned_agent_id: int | None,
+    stage: str | None,
+    source: str | None,
+    resolution: str | None,
+    lead_type: str | None,
+    consent: bool | None,
+    q: str | None,
+    in_destination: int | None,
+    not_in_destination: int | None,
+):
+    """Apply the shared Contacts filters to a SELECT (list + count share this)."""
     from app.db.models.destination import GroupMembership
 
     in_states = ("added", "invited", "joined")
-    stmt = select(Contact)
     if assigned_agent_id is not None:
         stmt = stmt.where(Contact.assigned_agent_id == assigned_agent_id)
     if stage:
@@ -197,6 +237,10 @@ async def list_contacts(
         stmt = stmt.where(Contact.source == source)
     if resolution:
         stmt = stmt.where(Contact.resolution_status == resolution)
+    if lead_type:
+        stmt = stmt.where(Contact.lead_type == lead_type)
+    if consent is not None:
+        stmt = stmt.where(Contact.consent.is_(consent))
     if in_destination is not None:
         sub = select(GroupMembership.contact_id).where(
             GroupMembership.destination_id == in_destination,
@@ -216,11 +260,98 @@ async def list_contacts(
                 Contact.name.ilike(like),
                 Contact.username.ilike(like),
                 Contact.phone.ilike(like),
+                Contact.source.ilike(like),
             )
         )
-    stmt = stmt.order_by(Contact.created_at.desc())
+    return stmt
+
+
+async def count_contacts(
+    db: AsyncSession,
+    *,
+    assigned_agent_id: int | None = None,
+    stage: str | None = None,
+    source: str | None = None,
+    resolution: str | None = None,
+    lead_type: str | None = None,
+    consent: bool | None = None,
+    q: str | None = None,
+    in_destination: int | None = None,
+    not_in_destination: int | None = None,
+) -> int:
+    stmt = _contacts_filter(
+        select(func.count()).select_from(Contact),
+        assigned_agent_id=assigned_agent_id,
+        stage=stage,
+        source=source,
+        resolution=resolution,
+        lead_type=lead_type,
+        consent=consent,
+        q=q,
+        in_destination=in_destination,
+        not_in_destination=not_in_destination,
+    )
+    return int(await db.scalar(stmt) or 0)
+
+
+async def list_contacts(
+    db: AsyncSession,
+    *,
+    assigned_agent_id: int | None = None,
+    stage: str | None = None,
+    source: str | None = None,
+    resolution: str | None = None,
+    lead_type: str | None = None,
+    consent: bool | None = None,
+    q: str | None = None,
+    in_destination: int | None = None,
+    not_in_destination: int | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[Contact]:
+    stmt = _contacts_filter(
+        select(Contact),
+        assigned_agent_id=assigned_agent_id,
+        stage=stage,
+        source=source,
+        resolution=resolution,
+        lead_type=lead_type,
+        consent=consent,
+        q=q,
+        in_destination=in_destination,
+        not_in_destination=not_in_destination,
+    )
+    stmt = stmt.order_by(Contact.created_at.desc(), Contact.id.desc())
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def find_conflict(
+    db: AsyncSession,
+    *,
+    phone: str | None,
+    username: str | None,
+    exclude_id: int | None = None,
+) -> str | None:
+    """Return ``"phone"``/``"username"`` if another contact already uses it, else
+    ``None`` (§15.3 #4 — phone & username are unique)."""
+    if phone:
+        stmt = select(Contact.id).where(Contact.phone == phone)
+        if exclude_id is not None:
+            stmt = stmt.where(Contact.id != exclude_id)
+        if await db.scalar(stmt.limit(1)) is not None:
+            return "phone"
+    if username:
+        stmt = select(Contact.id).where(Contact.username == username)
+        if exclude_id is not None:
+            stmt = stmt.where(Contact.id != exclude_id)
+        if await db.scalar(stmt.limit(1)) is not None:
+            return "username"
+    return None
 
 
 async def create_contact(
@@ -232,15 +363,20 @@ async def create_contact(
     source: str | None,
     consent: bool,
     tags: list | None,
+    notes: str | None = None,
 ) -> Contact:
     phone = normalize_phone(phone)
     username = normalize_username(username)
+    conflict = await find_conflict(db, phone=phone, username=username)
+    if conflict:
+        raise DuplicateContact(conflict)
     contact = Contact(
         name=name,
         lead_type="phone" if phone else "username",
         phone=phone,
         username=username,
         source=source,
+        notes=notes,
         consent=consent,
         tags=tags or [],
         utm={},
@@ -258,6 +394,126 @@ async def update_contact(db: AsyncSession, contact: Contact, **fields) -> Contac
     await db.commit()
     await db.refresh(contact)
     return contact
+
+
+# Keys the Edit-contact modal may change (§15.3 #3). Others go through the
+# generic PATCH path (stage/assignment) untouched.
+_EDITABLE = {"name", "phone", "username", "source", "notes"}
+
+
+async def edit_contact(db: AsyncSession, contact: Contact, updates: dict) -> Contact:
+    """Apply an Edit-contact save: normalise phone/username, enforce uniqueness,
+    and keep ``lead_type`` in sync. Unlike ``update_contact`` this **allows
+    clearing** a field to ``None`` (e.g. removing a phone) as long as at least one
+    identifier remains.
+    """
+    updates = dict(updates)
+    if "phone" in updates:
+        updates["phone"] = normalize_phone(updates["phone"])
+    if "username" in updates:
+        updates["username"] = normalize_username(updates["username"])
+
+    new_phone = updates["phone"] if "phone" in updates else contact.phone
+    new_username = updates["username"] if "username" in updates else contact.username
+    if not new_phone and not new_username:
+        raise ValueError("either phone or username is required")
+
+    conflict = await find_conflict(
+        db,
+        phone=updates["phone"] if "phone" in updates else None,
+        username=updates["username"] if "username" in updates else None,
+        exclude_id=contact.id,
+    )
+    if conflict:
+        raise DuplicateContact(conflict)
+
+    for key in _EDITABLE:
+        if key in updates:
+            setattr(contact, key, updates[key])
+    contact.lead_type = "phone" if contact.phone else "username"
+    await db.commit()
+    await db.refresh(contact)
+    return contact
+
+
+# ------------------------------------------------------------------ export ---
+
+EXPORT_HEADERS = [
+    "name",
+    "phone",
+    "username",
+    "source",
+    "stage",
+    "resolution",
+    "consent",
+    "created_at",
+]
+
+
+def _export_row(c: Contact) -> list:
+    return [
+        c.name or "",
+        c.phone or "",
+        f"@{c.username}" if c.username else "",
+        c.source or "",
+        c.stage,
+        c.resolution_status,
+        "true" if c.consent else "false",
+        c.created_at.isoformat() if c.created_at else "",
+    ]
+
+
+def contacts_to_csv(contacts: list[Contact]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(EXPORT_HEADERS)
+    for c in contacts:
+        writer.writerow(_export_row(c))
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def contacts_to_xlsx(contacts: list[Contact]) -> bytes:
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Contacts"
+    ws.append(EXPORT_HEADERS)
+    for c in contacts:
+        ws.append(_export_row(c))
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+# ------------------------------------------------------------ bulk helpers ---
+
+
+async def bulk_set_consent(db: AsyncSession, contact_ids: list[int], consent: bool) -> int:
+    count = 0
+    for cid in contact_ids:
+        contact = await db.get(Contact, cid)
+        if contact is None:
+            continue
+        contact.consent = consent
+        if consent:
+            contact.opted_out = False
+        count += 1
+    await db.commit()
+    return count
+
+
+async def bulk_unresolve(db: AsyncSession, contact_ids: list[int]) -> int:
+    count = 0
+    for cid in contact_ids:
+        contact = await db.get(Contact, cid)
+        if contact is None:
+            continue
+        contact.resolution_status = "pending"
+        contact.telegram_user_id = None
+        count += 1
+    await db.commit()
+    return count
 
 
 async def delete_contact(db: AsyncSession, contact: Contact) -> None:
