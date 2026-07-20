@@ -408,6 +408,7 @@ export const contactsApi = {
     const total = Number(res.headers.get('X-Total-Count') ?? items.length)
     return { items, total }
   },
+  get: (id: number) => apiFetch<Contact>(`/contacts/${id}`),
   create: (data: CreateContactInput) =>
     apiFetch<Contact>('/contacts', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: number, data: Partial<Contact>) =>
@@ -514,12 +515,25 @@ export interface Conversation {
 export interface SavedContact {
   id: number
   label: string
+  name?: string | null
   username: string | null
   phone: string | null
   telegram_user_id: number | null
   stage: string
   source: string | null
   consent: boolean
+  opted_out?: boolean
+  notes?: string | null
+}
+
+/** Optional details when saving an inbox peer as a contact (15.5 §6). */
+export interface SaveContactInput {
+  name?: string | null
+  phone?: string | null
+  username?: string | null
+  source?: string | null
+  stage?: string | null
+  consent?: boolean | null
 }
 
 export interface InboxMessage {
@@ -539,6 +553,13 @@ export interface Thread {
   conversation: Conversation
   messages: InboxMessage[]
   contact: Record<string, unknown> | null
+  /** Older messages exist before the first one returned (15.5 §3). */
+  has_more: boolean
+}
+
+export interface MessagesPage {
+  messages: InboxMessage[]
+  has_more: boolean
 }
 
 export interface InboxEvent {
@@ -588,10 +609,36 @@ export const inboxApi = {
     const qs = new URLSearchParams(params).toString()
     return apiFetch<Conversation[]>(`/inbox/conversations${qs ? `?${qs}` : ''}`)
   },
+  // Batched conversation list that also reads the X-Total-Count header (15.5 §4).
+  listConversationsPage: async (
+    params: Record<string, string> = {},
+  ): Promise<{ items: Conversation[]; total: number }> => {
+    const { accessToken } = useAuth.getState()
+    const qs = new URLSearchParams(params).toString()
+    const res = await fetch(`/api/inbox/conversations${qs ? `?${qs}` : ''}`, {
+      headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    })
+    if (!res.ok) throw new ApiError(res.status, res.statusText)
+    const items = (await res.json()) as Conversation[]
+    return { items, total: Number(res.headers.get('X-Total-Count') ?? items.length) }
+  },
   getThread: (id: number) => apiFetch<Thread>(`/inbox/conversations/${id}`),
-  // Save an unlinked inbox peer as a CRM contact.
-  saveContact: (id: number) =>
-    apiFetch<SavedContact>(`/inbox/conversations/${id}/save-contact`, { method: 'POST' }),
+  // A batch of messages: newest N, older via before_id, or a search within the
+  // conversation (15.5 §3 / §7).
+  messages: (id: number, opts: { limit?: number; before_id?: number; q?: string } = {}) => {
+    const p: Record<string, string> = {}
+    if (opts.limit != null) p.limit = String(opts.limit)
+    if (opts.before_id != null) p.before_id = String(opts.before_id)
+    if (opts.q) p.q = opts.q
+    const qs = new URLSearchParams(p).toString()
+    return apiFetch<MessagesPage>(`/inbox/conversations/${id}/messages${qs ? `?${qs}` : ''}`)
+  },
+  // Save an inbox peer as a CRM contact, optionally with full details (15.5 §6).
+  saveContact: (id: number, details: SaveContactInput = {}) =>
+    apiFetch<SavedContact>(`/inbox/conversations/${id}/save-contact`, {
+      method: 'POST',
+      body: JSON.stringify(details),
+    }),
   // Archive / unarchive (history kept); delete removes our copy only.
   archive: (id: number, archived: boolean) =>
     apiFetch<Conversation>(`/inbox/conversations/${id}/archive`, {

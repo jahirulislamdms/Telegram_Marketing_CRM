@@ -1700,3 +1700,315 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============ §15.5 Inbox UX & performance (Meta Business Suite style) ====== */
+
+/* --- conversation rows: avatar + stacked meta --- */
+.conv-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.conv-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.conv-top {
+  gap: 8px;
+}
+.conv-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-time {
+  font-size: 0.7rem;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+.conv-user {
+  font-size: 0.76rem;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.conv-meta-row .conv-unread {
+  margin-left: auto;
+}
+
+/* --- batch loaders --- */
+.load-more,
+.load-older,
+.jump-latest {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  width: 100%;
+}
+.load-more:hover,
+.load-older:hover,
+.jump-latest:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+.load-older {
+  align-self: center;
+  max-width: 260px;
+  flex: 0 0 auto;
+}
+.jump-latest {
+  align-self: center;
+  max-width: 200px;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg-elev);
+  border-style: solid;
+}
+
+/* --- thread: sticky head + composer, only history scrolls --- */
+.thread-head {
+  gap: 10px;
+  flex: 0 0 auto;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg-elev);
+  border-radius: 12px 12px 0 0;
+}
+.thread-head-main {
+  min-width: 0;
+  flex: 1;
+}
+.thread-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.thread-via {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.thread-back,
+.thread-info,
+.panel-close {
+  display: none;
+}
+.composer {
+  flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--bg-elev);
+  border-radius: 0 0 12px 12px;
+  align-items: flex-end;
+  padding-bottom: calc(12px + var(--kb-offset, 0px));
+}
+.composer-input {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  max-height: 140px;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+
+/* --- in-conversation search --- */
+.msg-hit {
+  background: color-mix(in srgb, var(--wait) 45%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+.bubble--hit {
+  outline: 2px solid var(--wait);
+  outline-offset: 2px;
+}
+.msg-hits {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.msg-hit-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.msg-hit-row:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.msg-hit-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-hit-time {
+  color: var(--muted);
+  font-size: 0.7rem;
+  flex: 0 0 auto;
+}
+
+/* --- contact panel --- */
+.inbox-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.profile-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.c-avatar--lg {
+  width: 48px;
+  height: 48px;
+  font-size: 1rem;
+}
+.profile-name {
+  font-weight: 700;
+}
+.profile-user {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+/* --- tablet --- */
+@media (max-width: 1200px) and (min-width: 981px) {
+  .inbox-grid {
+    grid-template-columns: 250px 1fr 230px;
+  }
+}
+
+/* --- mobile: one pane at a time + contact drawer (15.5 §10) --- */
+@media (max-width: 980px) {
+  .inbox-grid {
+    grid-template-columns: 1fr;
+    height: calc(100vh - 210px);
+    min-height: 380px;
+  }
+  .inbox-list {
+    display: grid;
+  }
+  .inbox-thread {
+    display: none;
+  }
+  /* Chat open: the conversation takes the full pane. */
+  .inbox-grid--chat .inbox-list {
+    display: none;
+  }
+  .inbox-grid--chat .inbox-thread {
+    display: flex;
+  }
+  .thread-back,
+  .thread-info,
+  .panel-close {
+    display: inline-grid;
+  }
+  .panel-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+  }
+  /* Contact details slide over from the right. */
+  .inbox-profile {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 88vw);
+    z-index: 60;
+    background: var(--bg-elev);
+    border-left: 1px solid var(--border);
+    padding: 16px;
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform 0.22s ease;
+  }
+  .inbox-profile--open {
+    transform: translateX(0);
+  }
+  .panel-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 55;
+  }
+  .inbox-head-actions {
+    flex-wrap: wrap;
+  }
+  /* Touch-friendly targets. */
+  .conv-item {
+    padding: 12px 10px;
+  }
+  .thread-actions .btn {
+    padding: 7px 10px;
+  }
+}
+
+/* Flexbox/grid children default to min-height:auto, which makes them grow to
+   their content instead of scrolling — so the thread body pushed the page and
+   the composer scrolled away. Allowing them to shrink is what actually gives
+   the list and the message history their own scrollbars (15.5 §2/§4). */
+.inbox-grid > * {
+  min-height: 0;
+}
+.inbox-thread,
+.inbox-list,
+.thread-body {
+  min-height: 0;
+}

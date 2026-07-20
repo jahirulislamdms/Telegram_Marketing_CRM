@@ -47,6 +47,26 @@ class ThreadOut(BaseModel):
     conversation: ConversationOut
     messages: list[MessageOut]
     contact: dict | None
+    # True when older messages exist before the first one returned (15.5 §3).
+    has_more: bool = False
+
+
+class MessagesPage(BaseModel):
+    """A batch of messages (oldest→newest) plus whether older ones remain."""
+
+    messages: list[MessageOut]
+    has_more: bool = False
+
+
+class SaveContactIn(BaseModel):
+    """Optional details when saving an inbox peer as a contact (15.5 §6)."""
+
+    name: str | None = None
+    phone: str | None = None
+    username: str | None = None
+    source: str | None = None
+    stage: str | None = None
+    consent: bool | None = None
 
 
 class SendReply(BaseModel):

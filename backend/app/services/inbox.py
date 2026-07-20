@@ -198,19 +198,20 @@ async def record_outgoing(
     return message
 
 
-async def list_conversations(
-    db: AsyncSession,
+def _conversations_filter(
+    stmt,
     *,
-    account_id: int | None = None,
-    account_ids: list[int] | None = None,
-    q: str | None = None,
-    status: str | None = None,
-    unread_only: bool = False,
-    archived: bool = False,
-    assigned_agent_id: int | None = None,
-) -> list[Conversation]:
+    account_id: int | None,
+    account_ids: list[int] | None,
+    q: str | None,
+    status: str | None,
+    unread_only: bool,
+    archived: bool,
+    assigned_agent_id: int | None,
+):
+    """Shared Conversation filters (list + count use the same predicates)."""
     # The main inbox shows non-archived chats; the Archive folder passes True — 15.1.j.
-    stmt = select(Conversation).where(Conversation.archived.is_(archived))
+    stmt = stmt.where(Conversation.archived.is_(archived))
     if account_ids:
         # Multi-account selection (all / one / many) — 15.1.e.
         stmt = stmt.where(Conversation.account_id.in_(account_ids))
@@ -242,20 +243,99 @@ async def list_conversations(
         # Only conversations whose linked contact is assigned to this agent.
         sub = select(Contact.id).where(Contact.assigned_agent_id == assigned_agent_id)
         stmt = stmt.where(Conversation.contact_id.in_(sub))
+    return stmt
+
+
+async def count_conversations(
+    db: AsyncSession,
+    *,
+    account_id: int | None = None,
+    account_ids: list[int] | None = None,
+    q: str | None = None,
+    status: str | None = None,
+    unread_only: bool = False,
+    archived: bool = False,
+    assigned_agent_id: int | None = None,
+) -> int:
+    stmt = _conversations_filter(
+        select(func.count()).select_from(Conversation),
+        account_id=account_id, account_ids=account_ids, q=q, status=status,
+        unread_only=unread_only, archived=archived, assigned_agent_id=assigned_agent_id,
+    )
+    return int(await db.scalar(stmt) or 0)
+
+
+async def list_conversations(
+    db: AsyncSession,
+    *,
+    account_id: int | None = None,
+    account_ids: list[int] | None = None,
+    q: str | None = None,
+    status: str | None = None,
+    unread_only: bool = False,
+    archived: bool = False,
+    assigned_agent_id: int | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
+) -> list[Conversation]:
+    stmt = _conversations_filter(
+        select(Conversation),
+        account_id=account_id, account_ids=account_ids, q=q, status=status,
+        unread_only=unread_only, archived=archived, assigned_agent_id=assigned_agent_id,
+    )
     stmt = stmt.order_by(
         Conversation.last_message_at.desc().nullslast(), Conversation.id.desc()
     )
+    # Batched loading for large inboxes — 15.5 §4.
+    if offset:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     res = await db.execute(stmt)
     return list(res.scalars().all())
 
 
-async def get_thread(db: AsyncSession, conversation_id: int) -> list[Message]:
-    res = await db.execute(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at, Message.id)
-    )
+async def get_thread(
+    db: AsyncSession,
+    conversation_id: int,
+    *,
+    limit: int | None = None,
+    before_id: int | None = None,
+    q: str | None = None,
+) -> list[Message]:
+    """Messages for a conversation, always returned oldest→newest.
+
+    ``limit`` returns the **newest** N (so a chat opens at the latest message —
+    15.5 §3); ``before_id`` pages further back; ``q`` searches within this
+    conversation only (15.5 §7).
+    """
+    stmt = select(Message).where(Message.conversation_id == conversation_id)
+    if before_id is not None:
+        stmt = stmt.where(Message.id < before_id)
+    if q and q.strip():
+        stmt = stmt.where(func.lower(Message.body).like(f"%{q.strip().lower()}%"))
+    if limit is not None:
+        # Take the newest N by id, then flip back to chronological order.
+        res = await db.execute(stmt.order_by(Message.id.desc()).limit(limit))
+        rows = list(res.scalars().all())
+        rows.reverse()
+        return rows
+    res = await db.execute(stmt.order_by(Message.created_at, Message.id))
     return list(res.scalars().all())
+
+
+async def has_older_messages(
+    db: AsyncSession, conversation_id: int, oldest_id: int | None
+) -> bool:
+    """True when messages exist before ``oldest_id`` (drives "Load older")."""
+    if oldest_id is None:
+        return False
+    stmt = (
+        select(Message.id)
+        .where(Message.conversation_id == conversation_id, Message.id < oldest_id)
+        .limit(1)
+    )
+    return await db.scalar(stmt) is not None
 
 
 async def reply_target(db: AsyncSession, conversation: Conversation) -> str | None:
@@ -320,28 +400,99 @@ async def delete_conversation(db: AsyncSession, conversation: Conversation) -> N
     await db.commit()
 
 
-async def save_peer_as_contact(db: AsyncSession, conversation: Conversation) -> Contact:
-    """Create (or re-link) a CRM contact from an inbox peer — 15.1.d.
+async def save_peer_as_contact(
+    db: AsyncSession,
+    conversation: Conversation,
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+    username: str | None = None,
+    source: str | None = None,
+    stage: str | None = None,
+    consent: bool | None = None,
+) -> Contact:
+    """Create (or update) a CRM contact from an inbox peer — 15.1.d / 15.5 §6.
 
-    The peer messaged us first, so the contact is saved with ``consent=true`` and
-    ``source="inbox"``; its stage mirrors the conversation's status.
+    The peer messaged us first, so a new contact defaults to ``consent=true`` and
+    ``source="inbox"``, with its stage mirroring the conversation's status. Any
+    supplied details override those defaults. If the peer (or the supplied
+    phone/username) already matches a contact it is **updated in place** — a
+    duplicate is never created. Raises ``contacts.DuplicateContact`` when a
+    supplied phone/username belongs to a *different* contact.
     """
-    contact = await _find_contact_by_peer(db, conversation.peer_id, conversation.peer_username)
+    from app.services import contacts as contact_service
+
+    norm_phone = contact_service.normalize_phone(phone) if phone else None
+    norm_username = (
+        contact_service.normalize_username(username) if username else None
+    )
+
+    # Prefer an existing contact matching the typed identifiers, else the peer.
+    contact: Contact | None = None
+    if norm_phone or norm_username:
+        res = await db.execute(
+            select(Contact).where(
+                or_(
+                    Contact.phone == norm_phone if norm_phone else False,
+                    Contact.username == norm_username if norm_username else False,
+                )
+            )
+        )
+        contact = res.scalars().first()
     if contact is None:
-        username = _norm_username(conversation.peer_username)
-        stage = conversation.status if conversation.status in CONTACT_STAGES else "replied"
+        contact = await _find_contact_by_peer(
+            db, conversation.peer_id, conversation.peer_username
+        )
+
+    conflict = await contact_service.find_conflict(
+        db,
+        phone=norm_phone,
+        username=norm_username,
+        exclude_id=contact.id if contact is not None else None,
+    )
+    if conflict:
+        raise contact_service.DuplicateContact(conflict)
+
+    if contact is None:
+        peer_username = _norm_username(conversation.peer_username)
+        final_username = norm_username or peer_username
+        default_stage = (
+            conversation.status if conversation.status in CONTACT_STAGES else "replied"
+        )
         contact = Contact(
-            name=conversation.peer_name,
-            lead_type="username" if username else "phone",
-            username=username,
+            name=name or conversation.peer_name,
+            lead_type="phone" if norm_phone else "username",
+            phone=norm_phone,
+            username=final_username,
             telegram_user_id=conversation.peer_id,
             resolution_status="resolved" if conversation.peer_id else "pending",
-            source="inbox",
-            stage=stage,
-            consent=True,
+            source=source or "inbox",
+            stage=stage or default_stage,
+            consent=True if consent is None else consent,
+            tags=[],
+            utm={},
         )
         db.add(contact)
         await db.flush()
+    else:
+        # Update in place — never create a duplicate (15.5 §6).
+        if name:
+            contact.name = name
+        if norm_phone:
+            contact.phone = norm_phone
+        if norm_username:
+            contact.username = norm_username
+        if source:
+            contact.source = source
+        if stage:
+            contact.stage = stage
+        if consent is not None:
+            contact.consent = consent
+        if contact.telegram_user_id is None and conversation.peer_id is not None:
+            contact.telegram_user_id = conversation.peer_id
+            contact.resolution_status = "resolved"
+        contact.lead_type = "phone" if contact.phone else "username"
+
     conversation.contact_id = contact.id
     await db.commit()
     await db.refresh(contact)

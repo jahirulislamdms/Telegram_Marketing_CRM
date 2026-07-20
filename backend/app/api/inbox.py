@@ -30,6 +30,8 @@ from app.schemas.inbox import (
     BulkStatus,
     ConversationOut,
     MessageOut,
+    MessagesPage,
+    SaveContactIn,
     SendReply,
     SetArchived,
     SetStatus,
@@ -38,8 +40,12 @@ from app.schemas.inbox import (
 )
 from app.services import accounts as account_service
 from app.services import audit
+from app.services import contacts as contact_service
 from app.services import engine_client
 from app.services import inbox as inbox_service
+
+# Latest N messages loaded when a conversation opens (15.5 §3).
+DEFAULT_THREAD_LIMIT = 12
 
 router = APIRouter(prefix="/inbox", tags=["inbox"])
 
@@ -89,6 +95,7 @@ async def _broadcast_conversation(db: AsyncSession, conversation) -> None:
 
 @router.get("/conversations", response_model=list[ConversationOut])
 async def list_conversations(
+    response: Response,
     account_id: int | None = Query(default=None),
     account_ids: str | None = Query(
         default=None, description="Comma-separated account ids; omit for all accounts"
@@ -97,6 +104,8 @@ async def list_conversations(
     conv_status: str | None = Query(default=None, alias="status"),
     unread: bool = Query(default=False),
     archived: bool = Query(default=False, description="true = the Archive folder"),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int | None = Query(default=None, ge=0),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list:
@@ -109,8 +118,7 @@ async def list_conversations(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="account_ids must be integers"
             )
-    conversations = await inbox_service.list_conversations(
-        db,
+    filters = dict(
         account_id=account_id,
         account_ids=ids,
         q=q,
@@ -118,6 +126,13 @@ async def list_conversations(
         unread_only=unread,
         archived=archived,
         assigned_agent_id=agent_filter,
+    )
+    # Batched loading — the UI asks for 20 at a time and reads the total (15.5 §4).
+    total = await inbox_service.count_conversations(db, **filters)
+    response.headers["X-Total-Count"] = str(total)
+    response.headers["Access-Control-Expose-Headers"] = "X-Total-Count"
+    conversations = await inbox_service.list_conversations(
+        db, limit=limit, offset=offset, **filters
     )
     return [await inbox_service.conversation_dict(db, c) for c in conversations]
 
@@ -158,66 +173,127 @@ async def delete_conversation(
 @router.post("/conversations/{conversation_id}/save-contact")
 async def save_contact(
     conversation_id: int,
+    payload: SaveContactIn | None = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Save an unlinked inbox peer as a CRM contact (15.1.d)."""
+    """Save an inbox peer as a CRM contact (15.1.d), optionally with full details
+    (15.5 §6). An existing match is **updated** rather than duplicated."""
     conversation = await _get_conversation_or_404(db, conversation_id)
     await _ensure_access(db, user, conversation)
     if conversation.contact_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Conversation already has a contact"
         )
-    if conversation.peer_id is None and not conversation.peer_username:
+    details = payload or SaveContactIn()
+    if (
+        conversation.peer_id is None
+        and not conversation.peer_username
+        and not (details.phone or details.username)
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="No peer identity to save"
         )
-    contact = await inbox_service.save_peer_as_contact(db, conversation)
+    try:
+        contact = await inbox_service.save_peer_as_contact(
+            db,
+            conversation,
+            name=details.name,
+            phone=details.phone,
+            username=details.username,
+            source=details.source,
+            stage=details.stage,
+            consent=details.consent,
+        )
+    except contact_service.DuplicateContact as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message)
     await audit.record_event(
         db, type="inbox.save_contact", actor_type="user", actor_id=user.id,
         entity_ref=f"contact:{contact.id}",
     )
     await _broadcast_conversation(db, conversation)
+    return _contact_payload(contact)
+
+
+def _contact_payload(c: Contact) -> dict:
     return {
-        "id": contact.id,
-        "label": contact.display_label,
-        "username": contact.username,
-        "phone": contact.phone,
-        "telegram_user_id": contact.telegram_user_id,
-        "stage": contact.stage,
-        "source": contact.source,
-        "consent": contact.consent,
+        "id": c.id,
+        "label": c.display_label,
+        "name": c.name,
+        "phone": c.phone,
+        "username": c.username,
+        "telegram_user_id": c.telegram_user_id,
+        "stage": c.stage,
+        "source": c.source,
+        "tags": c.tags,
+        "consent": c.consent,
+        "opted_out": c.opted_out,
+        "notes": c.notes,
     }
+
+
+@router.get("/conversations/{conversation_id}/messages", response_model=MessagesPage)
+async def get_messages(
+    conversation_id: int,
+    limit: int = Query(default=DEFAULT_THREAD_LIMIT, ge=1, le=200),
+    before_id: int | None = Query(
+        default=None, description="Return messages older than this id (paging back)"
+    ),
+    q: str | None = Query(default=None, description="Search within this conversation"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> MessagesPage:
+    """A batch of messages, oldest→newest (15.5 §3 "Load older" and §7 search).
+
+    Without ``before_id`` this returns the **newest** ``limit`` messages so a chat
+    opens at the latest one. A ``q`` searches this conversation only.
+    """
+    conversation = await _get_conversation_or_404(db, conversation_id)
+    await _ensure_access(db, user, conversation)
+    messages = await inbox_service.get_thread(
+        db, conversation_id, limit=limit, before_id=before_id, q=q
+    )
+    has_more = (
+        False
+        if q
+        else await inbox_service.has_older_messages(
+            db, conversation_id, messages[0].id if messages else None
+        )
+    )
+    return MessagesPage(
+        messages=[MessageOut(**inbox_service.message_dict(m)) for m in messages],
+        has_more=has_more,
+    )
 
 
 @router.get("/conversations/{conversation_id}", response_model=ThreadOut)
 async def get_thread(
     conversation_id: int,
+    limit: int | None = Query(
+        default=DEFAULT_THREAD_LIMIT,
+        ge=1,
+        le=500,
+        description="Newest N messages; the chat opens at the latest one",
+    ),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ThreadOut:
     conversation = await _get_conversation_or_404(db, conversation_id)
     await _ensure_access(db, user, conversation)
-    messages = await inbox_service.get_thread(db, conversation_id)
+    messages = await inbox_service.get_thread(db, conversation_id, limit=limit)
+    has_more = await inbox_service.has_older_messages(
+        db, conversation_id, messages[0].id if messages else None
+    )
     contact = None
     if conversation.contact_id:
         c = await db.get(Contact, conversation.contact_id)
         if c is not None:
-            contact = {
-                "id": c.id,
-                "label": c.display_label,
-                "phone": c.phone,
-                "username": c.username,
-                "stage": c.stage,
-                "source": c.source,
-                "tags": c.tags,
-                "consent": c.consent,
-                "opted_out": c.opted_out,
-            }
+            contact = _contact_payload(c)
     return ThreadOut(
         conversation=ConversationOut(**await inbox_service.conversation_dict(db, conversation)),
         messages=[MessageOut(**inbox_service.message_dict(m)) for m in messages],
         contact=contact,
+        has_more=has_more,
     )
 
 
