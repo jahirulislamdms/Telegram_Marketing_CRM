@@ -77,10 +77,24 @@ async def update_staff(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot deactivate your own account",
         )
+    fields = payload.model_dump(exclude_unset=True)
+    if "full_name" in fields and not (fields.get("full_name") or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Name is required.",
+        )
+    if payload.email is not None and await user_service.email_taken(
+        db, str(payload.email), exclude_id=user.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This email address is already in use.",
+        )
     updated = await user_service.update_user(
         db,
         user,
         full_name=payload.full_name,
+        email=str(payload.email) if payload.email is not None else None,
         role=payload.role.value if payload.role is not None else None,
         is_active=payload.is_active,
         password=payload.password,

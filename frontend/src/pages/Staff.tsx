@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ApiError, staffApi, type CreateStaffInput } from '../api/client'
 import { useAuth, type Role, type User } from '../store/auth'
+import EditStaffModal from '../components/EditStaffModal'
 
 const ROLES: Role[] = ['admin', 'manager', 'agent']
 
@@ -18,6 +19,7 @@ export default function Staff() {
   const [form, setForm] = useState<CreateStaffInput>(EMPTY_FORM)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [editFor, setEditFor] = useState<User | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -112,14 +114,14 @@ export default function Staff() {
           <p className="hint">Loading…</p>
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table staff-table">
               <thead>
                 <tr>
                   <th>Email</th>
                   <th>Name</th>
                   <th>Role</th>
                   <th>Status</th>
-                  <th></th>
+                  <th className="col-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -135,12 +137,20 @@ export default function Staff() {
                         {u.is_active ? 'active' : 'inactive'}
                       </span>
                     </td>
-                    <td className="row-actions">
-                      {u.is_active && u.id !== currentUser.id && (
-                        <button className="btn btn-ghost btn-sm" onClick={() => onDeactivate(u)}>
-                          Deactivate
+                    <td className="col-actions">
+                      <div className="quick-actions">
+                        <button className="icon-btn" title="Edit" onClick={() => setEditFor(u)}>
+                          ✏️
                         </button>
-                      )}
+                        {u.is_active && u.id !== currentUser.id && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => onDeactivate(u)}
+                          >
+                            Deactivate
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -149,6 +159,18 @@ export default function Staff() {
           </div>
         )}
       </section>
+
+      {editFor && (
+        <EditStaffModal
+          staff={editFor}
+          isSelf={editFor.id === currentUser.id}
+          onClose={() => setEditFor(null)}
+          onSaved={() => {
+            setEditFor(null)
+            void load()
+          }}
+        />
+      )}
     </div>
   )
 }

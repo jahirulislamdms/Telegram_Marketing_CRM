@@ -148,3 +148,170 @@ def test_audit_log_records_actions(client, admin_credentials):
     types = {event["type"] for event in resp.json()}
     assert "user.login" in types
     assert "user.create" in types
+
+
+# ----------------------------------------- §15.4 profile / staff management ---
+
+
+def test_profile_update_name_and_email(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    r = client.patch(
+        "/api/auth/me",
+        headers=_auth(admin["access_token"]),
+        json={"full_name": "Admin Renamed", "email": "admin@test.com"},  # same email = ok
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["full_name"] == "Admin Renamed"
+    assert r.json()["email"] == "admin@test.com"
+
+
+def test_profile_name_cannot_be_empty(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    r = client.patch(
+        "/api/auth/me", headers=_auth(admin["access_token"]), json={"full_name": "   "}
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Name cannot be empty."
+
+
+def test_profile_email_must_be_unique(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    client.post(
+        "/api/users",
+        headers=_auth(admin["access_token"]),
+        json={"email": "p154_taken@test.com", "password": "TakenPass123", "role": "agent"},
+    )
+    r = client.patch(
+        "/api/auth/me",
+        headers=_auth(admin["access_token"]),
+        json={"email": "p154_taken@test.com"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"] == "This email address is already in use."
+
+
+def test_change_password_flow(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    client.post(
+        "/api/users",
+        headers=_auth(admin["access_token"]),
+        json={"email": "p154_pw@test.com", "password": "OrigPass123", "role": "agent"},
+    )
+    user = _login(client, "p154_pw@test.com", "OrigPass123")
+    tok = _auth(user["access_token"])
+
+    # Wrong current password is rejected.
+    bad = client.post(
+        "/api/auth/change-password",
+        headers=tok,
+        json={"current_password": "WRONGPASS", "new_password": "NewPass456"},
+    )
+    assert bad.status_code == 400
+    assert bad.json()["detail"] == "Current password is incorrect."
+
+    # Correct current password succeeds and does NOT log the user out.
+    ok = client.post(
+        "/api/auth/change-password",
+        headers=tok,
+        json={"current_password": "OrigPass123", "new_password": "NewPass456"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["detail"] == "Password changed successfully."
+    assert client.get("/api/auth/me", headers=tok).status_code == 200  # token still valid
+
+    # Old password no longer works; new one does.
+    assert client.post(
+        "/api/auth/login", json={"email": "p154_pw@test.com", "password": "OrigPass123"}
+    ).status_code == 401
+    assert client.post(
+        "/api/auth/login", json={"email": "p154_pw@test.com", "password": "NewPass456"}
+    ).status_code == 200
+
+
+def test_change_password_min_length(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    r = client.post(
+        "/api/auth/change-password",
+        headers=_auth(admin["access_token"]),
+        json={"current_password": admin_credentials["password"], "new_password": "short"},
+    )
+    assert r.status_code == 422  # pydantic min_length=8
+
+
+def test_staff_edit_name_email_role(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    created = client.post(
+        "/api/users",
+        headers=_auth(admin["access_token"]),
+        json={"email": "p154_edit@test.com", "password": "EditPass123", "role": "agent"},
+    ).json()
+    r = client.patch(
+        f"/api/users/{created['id']}",
+        headers=_auth(admin["access_token"]),
+        json={"full_name": "Edited Staff", "email": "p154_edit2@test.com", "role": "manager"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["full_name"] == "Edited Staff"
+    assert body["email"] == "p154_edit2@test.com"
+    assert body["role"] == "manager"
+
+
+def test_staff_edit_duplicate_email_conflict(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    client.post(
+        "/api/users", headers=_auth(admin["access_token"]),
+        json={"email": "p154_a@test.com", "password": "PassAAA123", "role": "agent"},
+    )
+    b = client.post(
+        "/api/users", headers=_auth(admin["access_token"]),
+        json={"email": "p154_b@test.com", "password": "PassBBB123", "role": "agent"},
+    ).json()
+    r = client.patch(
+        f"/api/users/{b['id']}",
+        headers=_auth(admin["access_token"]),
+        json={"email": "p154_a@test.com"},
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"] == "This email address is already in use."
+
+
+def test_staff_edit_password_optional(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    created = client.post(
+        "/api/users", headers=_auth(admin["access_token"]),
+        json={"email": "p154_pwopt@test.com", "password": "StartPass123", "role": "agent"},
+    ).json()
+    # Update name only (no password) — login still works with the original password.
+    client.patch(
+        f"/api/users/{created['id']}",
+        headers=_auth(admin["access_token"]),
+        json={"full_name": "Kept Password"},
+    )
+    assert client.post(
+        "/api/auth/login", json={"email": "p154_pwopt@test.com", "password": "StartPass123"}
+    ).status_code == 200
+    # Provide a new password — login updates.
+    client.patch(
+        f"/api/users/{created['id']}",
+        headers=_auth(admin["access_token"]),
+        json={"password": "ChangedPass456"},
+    )
+    assert client.post(
+        "/api/auth/login", json={"email": "p154_pwopt@test.com", "password": "ChangedPass456"}
+    ).status_code == 200
+
+
+def test_staff_edit_name_required(client, admin_credentials):
+    admin = _login(client, **admin_credentials)
+    created = client.post(
+        "/api/users", headers=_auth(admin["access_token"]),
+        json={"email": "p154_req@test.com", "password": "ReqPass123", "role": "agent"},
+    ).json()
+    r = client.patch(
+        f"/api/users/{created['id']}",
+        headers=_auth(admin["access_token"]),
+        json={"full_name": "  "},
+    )
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Name is required."

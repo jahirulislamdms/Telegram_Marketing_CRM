@@ -50,6 +50,7 @@ export interface CreateStaffInput {
 
 export interface UpdateStaffInput {
   full_name?: string | null
+  email?: string
   role?: Role
   is_active?: boolean
   password?: string
@@ -75,8 +76,13 @@ export const staffApi = {
 }
 
 export const meApi = {
-  update: (data: { full_name?: string | null; theme?: Theme; password?: string }) =>
+  update: (data: { full_name?: string | null; email?: string; theme?: Theme; password?: string }) =>
     apiFetch<User>('/auth/me', { method: 'PATCH', body: JSON.stringify(data) }),
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    apiFetch<{ detail: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 }
 
 export const auditApi = {

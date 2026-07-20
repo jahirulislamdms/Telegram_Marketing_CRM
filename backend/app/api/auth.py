@@ -10,11 +10,12 @@ from app.auth.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    verify_password,
 )
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.auth import AccessToken, LoginRequest, RefreshRequest, TokenPair
-from app.schemas.user import MeUpdate, UserOut
+from app.schemas.user import MeUpdate, PasswordChange, UserOut
 from app.services import audit
 from app.services import auth as auth_service
 from app.services import users as user_service
@@ -76,11 +77,51 @@ async def update_me(
     current: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    fields = payload.model_dump(exclude_unset=True)
+    # Name, if being set, cannot be blank (§15.4 #3 validation).
+    if "full_name" in fields and not (fields.get("full_name") or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Name cannot be empty.",
+        )
+    # Email must stay unique.
+    if payload.email is not None and await user_service.email_taken(
+        db, str(payload.email), exclude_id=current.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This email address is already in use.",
+        )
     updated = await user_service.update_user(
         db,
         current,
         full_name=payload.full_name,
+        email=str(payload.email) if payload.email is not None else None,
         theme=payload.theme.value if payload.theme is not None else None,
         password=payload.password,
     )
     return updated
+
+
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+async def change_password(
+    payload: PasswordChange,
+    current: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Self-service password change. The current password is verified; existing
+    tokens stay valid so the user is NOT logged out (§15.4 #4)."""
+    if not verify_password(payload.current_password, current.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+    await user_service.update_user(db, current, password=payload.new_password)
+    await audit.record_event(
+        db,
+        type="user.password_change",
+        actor_type="user",
+        actor_id=current.id,
+        entity_ref=f"user:{current.id}",
+    )
+    return {"detail": "Password changed successfully."}

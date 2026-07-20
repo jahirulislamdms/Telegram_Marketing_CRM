@@ -1576,3 +1576,127 @@ select:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* ================= §15.4 Sticky nav + profile / staff management ============ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  transition: box-shadow 0.2s ease;
+}
+.topbar--scrolled {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+
+/* user menu (clickable chip → dropdown) */
+.user-menu {
+  position: relative;
+}
+.user-chip--btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  padding: 4px 8px;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.user-chip--btn:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: var(--border);
+}
+.chip-caret {
+  color: var(--muted);
+  font-size: 0.7rem;
+  margin-left: 2px;
+}
+.user-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  min-width: 180px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+.user-dropdown button {
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.user-dropdown button:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.user-dropdown-danger {
+  color: var(--err) !important;
+}
+.user-dropdown-danger:hover {
+  background: color-mix(in srgb, var(--err) 14%, transparent) !important;
+}
+.user-dropdown-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 5px 4px;
+}
+
+/* success message (profile / password / staff) */
+.form-success {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  margin: 0 0 12px;
+}
+
+/* profile read-only fields */
+.readonly-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 4px 0 8px;
+  padding: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.readonly-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.readonly-value {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+/* staff table: sticky header + hover (mirrors contacts-table) */
+.staff-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--card);
+}
+.staff-table tbody tr {
+  transition: background 0.12s ease;
+}
+.staff-table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+@media (max-width: 640px) {
+  .readonly-grid {
+    grid-template-columns: 1fr;
+  }
+}

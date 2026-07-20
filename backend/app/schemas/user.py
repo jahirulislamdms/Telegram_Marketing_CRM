@@ -31,6 +31,7 @@ class UserUpdate(BaseModel):
     """Admin-side update of another user."""
 
     full_name: str | None = Field(default=None, max_length=255)
+    email: EmailStr | None = None
     role: UserRole | None = None
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
@@ -40,5 +41,13 @@ class MeUpdate(BaseModel):
     """Self-service update of the current user's own profile."""
 
     full_name: str | None = Field(default=None, max_length=255)
+    email: EmailStr | None = None
     theme: Theme | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class PasswordChange(BaseModel):
+    """Self-service password change — the current password must be verified."""
+
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
