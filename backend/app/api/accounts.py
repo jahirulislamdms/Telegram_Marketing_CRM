@@ -17,6 +17,7 @@ from app.schemas.account import (
     AccountOut,
     AccountStatus,
     AccountStatusUpdate,
+    AccountUpdate,
     AppealResult,
     BanCheckResult,
     LoginResultResponse,
@@ -95,6 +96,80 @@ async def create_account(
     return account
 
 
+@router.patch("/{account_id}", response_model=AccountOut)
+async def update_account(
+    account_id: int,
+    payload: AccountUpdate,
+    user: User = Depends(require_manager),
+    db: AsyncSession = Depends(get_db),
+) -> AccountOut:
+    """Unified account edit (§15.6): label + proxy enable/disable/selection.
+
+    Login, session, health and spam behaviour are untouched; when the proxy
+    changes on a logged-in account we ask the engine to re-bind the client so it
+    keeps routing through the right proxy (best-effort — a missing engine never
+    fails the edit).
+    """
+    account = await _get_account_or_404(db, account_id)
+    fields = payload.model_dump(exclude_unset=True)
+
+    if "label" in fields:
+        label = (payload.label or "").strip()
+        if not label:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Account name cannot be empty.",
+            )
+        await account_service.update_account(db, account, label=label)
+
+    proxy_before = account.proxy_id
+    if payload.assign_proxy is False:
+        # Disable the proxy: hand it back to the pool.
+        await proxy_service.release_proxy(db, account)
+        await db.refresh(account)
+    elif payload.assign_proxy is True or "proxy_id" in fields:
+        if payload.proxy_id is not None:
+            chosen = await db.get(Proxy, payload.proxy_id)
+            if chosen is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND, detail="Proxy not found"
+                )
+            if (
+                chosen.assigned_account_id is not None
+                and chosen.assigned_account_id != account.id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="That proxy is already assigned to another account.",
+                )
+            # Release whatever it had, then bind the chosen one.
+            await proxy_service.release_proxy(db, account)
+            chosen.assigned_account_id = account.id
+            account.proxy_id = chosen.id
+            await db.commit()
+            await db.refresh(account)
+        elif account.proxy_id is None:
+            await proxy_service.assign_free_proxy(db, account)
+            await db.refresh(account)
+
+    if account.proxy_id != proxy_before and account.session_ref:
+        # Re-bind the live client so it uses the new proxy (best-effort).
+        try:
+            await engine_client.start_client(account, await _account_proxy(db, account))
+        except engine_client.EngineUnavailable:
+            pass
+
+    await audit.record_event(
+        db,
+        type="account.update",
+        actor_type="user",
+        actor_id=user.id,
+        entity_ref=f"account:{account.id}",
+        meta={"label": account.label, "proxy_id": account.proxy_id},
+    )
+    return account
+
+
 @router.get("/{account_id}", response_model=AccountOut)
 async def get_account(
     account_id: int,
@@ -148,6 +223,9 @@ async def account_status(
             engine_reachable=False,
             detail=str(exc),
         )
+    # Refresh the stored Telegram identity whenever the engine reports one (§15.6),
+    # so the accounts list stays accurate without needing a re-login.
+    await account_service.record_identity(db, account, data.get("user"))
     return AccountStatus(
         id=account.id,
         label=account.label,
@@ -209,7 +287,7 @@ async def login_qr_status(
     except engine_client.EngineUnavailable as exc:
         raise _engine_error(exc)
     if data.get("status") == "authorized":
-        await account_service.mark_logged_in(db, account)
+        await account_service.mark_logged_in(db, account, data.get("user"))
     return QrStatusResponse(**data)
 
 
@@ -226,7 +304,7 @@ async def login_qr_password(
     except engine_client.EngineUnavailable as exc:
         raise _engine_error(exc)
     if data.get("status") == "authorized":
-        await account_service.mark_logged_in(db, account)
+        await account_service.mark_logged_in(db, account, data.get("user"))
     return LoginResultResponse(**data)
 
 
@@ -267,7 +345,7 @@ async def login_phone_sign_in(
     except engine_client.EngineUnavailable as exc:
         raise _engine_error(exc)
     if data.get("status") == "authorized":
-        await account_service.mark_logged_in(db, account)
+        await account_service.mark_logged_in(db, account, data.get("user"))
     return LoginResultResponse(**data)
 
 
@@ -285,7 +363,7 @@ async def login_session_string(
     except engine_client.EngineUnavailable as exc:
         raise _engine_error(exc)
     if data.get("status") == "authorized":
-        await account_service.mark_logged_in(db, account)
+        await account_service.mark_logged_in(db, account, data.get("user"))
     return LoginResultResponse(**data)
 
 

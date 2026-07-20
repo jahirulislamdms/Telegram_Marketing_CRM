@@ -105,6 +105,16 @@ export interface Account {
   last_action_at: string | null
   spam_state: string
   created_at: string
+  /** The account's real Telegram identity (§15.6) — distinct from `label`. */
+  tg_user_id: number | null
+  tg_username: string | null
+  tg_first_name: string | null
+}
+
+export interface UpdateAccountInput {
+  label?: string
+  assign_proxy?: boolean
+  proxy_id?: number | null
 }
 
 export interface AccountStatus {
@@ -191,6 +201,9 @@ export const accountsApi = {
   list: () => apiFetch<Account[]>('/accounts'),
   create: (data: CreateAccountInput) =>
     apiFetch<Account>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
+  // Unified account edit (§15.6): name + proxy enable/disable/selection.
+  update: (id: number, data: UpdateAccountInput) =>
+    apiFetch<Account>(`/accounts/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   remove: (id: number) => apiFetch<void>(`/accounts/${id}`, { method: 'DELETE' }),
   status: (id: number) => apiFetch<AccountStatus>(`/accounts/${id}/status`),
   logout: (id: number) => apiFetch<Account>(`/accounts/${id}/logout`, { method: 'POST' }),

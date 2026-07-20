@@ -3,6 +3,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -33,6 +34,11 @@ class Account(Base):
     # Per-account API creds are optional; blank means "use the shared API ID/HASH".
     api_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     api_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # The account's real Telegram identity, captured from the engine on login and
+    # refreshed on a status check (§15.6). `label` stays our own operator name.
+    tg_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tg_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tg_first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Reference to the persisted Telethon session (the engine maps this to a file
     # under sessions/). Null until the account has logged in.
     session_ref: Mapped[str | None] = mapped_column(String(255), nullable=True)

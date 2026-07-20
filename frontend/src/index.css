@@ -2012,3 +2012,47 @@ select:focus {
 .thread-body {
   min-height: 0;
 }
+
+/* ============ §15.6 Telegram account identity & unified edit =============== */
+.tg-cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.tg-cell-name {
+  font-weight: 600;
+}
+.tg-cell-user {
+  font-size: 0.82rem;
+  color: var(--accent);
+}
+.tg-cell-phone {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.tg-cell-unknown {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-style: italic;
+}
+.tg-identity {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.85rem;
+}
+.tg-identity-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.tg-identity-row {
+  color: var(--text);
+}
+.tg-identity-muted {
+  color: var(--muted);
+  font-size: 0.8rem;
+}

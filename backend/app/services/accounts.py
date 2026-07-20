@@ -59,9 +59,74 @@ async def quarantine(db: AsyncSession, account: Account) -> Account:
     return account
 
 
-async def mark_logged_in(db: AsyncSession, account: Account) -> Account:
+def _identity_fields(user: dict | None) -> dict:
+    """Pull the Telegram identity out of the engine's user payload (§15.6).
+
+    Telethon exposes ``id`` / ``username`` / ``first_name`` / ``phone``; any of
+    them may be missing, so each is applied only when present.
+    """
+    if not isinstance(user, dict):
+        return {}
+    fields: dict = {}
+    if user.get("id") is not None:
+        try:
+            fields["tg_user_id"] = int(user["id"])
+        except (TypeError, ValueError):
+            pass
+    username = user.get("username")
+    if username:
+        fields["tg_username"] = str(username).lstrip("@")
+    first_name = user.get("first_name")
+    if first_name:
+        fields["tg_first_name"] = str(first_name)
+    phone = user.get("phone")
+    if phone:
+        p = str(phone)
+        fields["phone"] = p if p.startswith("+") else f"+{p}"
+    return fields
+
+
+async def record_identity(
+    db: AsyncSession, account: Account, user: dict | None, *, commit: bool = True
+) -> Account:
+    """Persist the account's real Telegram identity, if the engine reported one.
+
+    The operator-chosen ``label`` is never overwritten; only the phone is filled
+    in when Telegram knows it and we don't.
+    """
+    fields = _identity_fields(user)
+    if not fields:
+        return account
+    for key, value in fields.items():
+        # Don't clobber a phone the operator typed in.
+        if key == "phone" and account.phone:
+            continue
+        setattr(account, key, value)
+    if commit:
+        await db.commit()
+        await db.refresh(account)
+    return account
+
+
+async def mark_logged_in(
+    db: AsyncSession, account: Account, telegram_user: dict | None = None
+) -> Account:
     account.session_ref = str(account.id)
     account.status = "active"
+    # Capture who this account actually is on Telegram (§15.6).
+    await record_identity(db, account, telegram_user, commit=False)
+    await db.commit()
+    await db.refresh(account)
+    return account
+
+
+async def update_account(
+    db: AsyncSession, account: Account, *, label: str | None = None
+) -> Account:
+    """Unified account edit (§15.6). Proxy binding is handled by the API layer
+    because it also has to release/assign from the shared pool."""
+    if label is not None:
+        account.label = label
     await db.commit()
     await db.refresh(account)
     return account

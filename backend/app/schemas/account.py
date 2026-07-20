@@ -22,6 +22,10 @@ class AccountOut(BaseModel):
     last_action_at: datetime | None
     spam_state: str
     created_at: datetime
+    # The account's real Telegram identity (§15.6) — distinct from our label.
+    tg_user_id: int | None = None
+    tg_username: str | None = None
+    tg_first_name: str | None = None
 
 
 class AccountCreate(BaseModel):
@@ -32,6 +36,19 @@ class AccountCreate(BaseModel):
     api_hash: str | None = Field(default=None, max_length=64)
     # If true (default), auto-assign a free healthy proxy from the pool.
     assign_proxy: bool = True
+
+
+class AccountUpdate(BaseModel):
+    """Unified account edit (§15.6) — one modal covers all of it.
+
+    ``assign_proxy=False`` releases the proxy back to the pool; ``True`` with a
+    ``proxy_id`` binds that specific proxy; ``True`` without one auto-assigns a
+    free healthy proxy. Omitting both leaves the proxy untouched.
+    """
+
+    label: str | None = Field(default=None, max_length=120)
+    assign_proxy: bool | None = None
+    proxy_id: int | None = None
 
 
 class AccountStatus(BaseModel):

@@ -510,6 +510,7 @@ Append-only record of updates (newest at the bottom).
 - **2026-07-20** — **§15.3 done — Contacts Module UX & Management Upgrade.** A non-breaking modernization of the Contacts page: the pipeline **stage system is untouched** (same six values, same "Set stage" behaviour) and Pipeline/Inbox/Campaigns/Analytics/Sender were not modified. **Backend:** migration `0016` adds a nullable `contacts.notes` (Text). `services/contacts.py` — new `DuplicateContact` + `find_conflict()` (phone & username unique), `create_contact` now 409s on a conflict, a new `edit_contact()` (normalises phone/username, enforces uniqueness excluding self, keeps `lead_type` in sync, allows clearing a field), `import_contacts()` **now UPDATES a matched contact instead of skipping the duplicate** (returns `imported`/`updated`/`rejected_no_consent`/`invalid`/`errors`/`total`, wraps each row so one bad row can't abort the batch), `count_contacts()` + `list_contacts()` extended with `lead_type`/`consent`/`limit`/`offset` filters and search over **source** too, and CSV/XLSX exporters (`contacts_to_csv`/`contacts_to_xlsx`, columns name/phone/username/source/stage/resolution/consent/created_at). `api/contacts.py` — `GET /api/contacts` sets an **`X-Total-Count`** header (unpaginated total) so lists stay a plain array (Pipeline/Groups, which call it without `limit`, are unaffected); new `GET /api/contacts/export` (csv|xlsx; `ids=` selected, else filtered), `POST /api/contacts/bulk/consent` and `POST /api/contacts/bulk/unresolve`; PATCH routes identity fields through `edit_contact` (409/422) while stage/consent/assignment keep the old generic path. `ContactOut`/`ContactCreate`/`ContactUpdate` gain `notes`; `ContactUpdate` gains editable `phone`/`username`; `ImportResult` gains `updated`/`errors`. **Frontend:** Contacts page rebuilt — modern table (initials avatar, Name + @username + Phone shown together and never hidden, rounded stage/resolution badges, sticky header, hover, row-select highlight), debounced search + combining filters (stage/type/resolution/consent/source with a datalist), quick-action **icon** buttons (💬 Message / 🔄 Resolve / ✏️ Edit / 🗑️ Delete) with tooltips, an **Edit Contact** modal (`ContactEditModal.tsx`; name/phone/username/source/stage/consent/notes; ✏️ or double-click; saves in place), a **Bulk actions** dropdown (change stage, mark/remove consent, resolve/unresolve, export selected, delete-with-confirm) with select-page / select-all-matching / clear, an **Export ▾** menu (all/filtered · CSV/Excel), an import summary chip row, **pagination** (rows 10/25/50/100 + "Showing X–Y of N"), an **empty state**, and **loading skeletons**. `api/client.ts` adds `listPage` (reads `X-Total-Count`), `exportFile`, `bulkConsent`/`bulkResolve`/`bulkUnresolve`, and `notes`. **Verified:** 203 pytest pass (8 new: dup phone/username 409, import updates-not-duplicates, edit fields incl. notes, edit-into-duplicate 409, bulk consent+unresolve, CSV+XLSX export, pagination + total header); migration `0016` up/down on SQLite; `npm run build` (tsc clean); **browser E2E** against a 30-contact seed — rendered the modern list with avatars + "Showing 1–25 of 30", filtered to stage=customer (5), edited a contact's name+notes (persisted via API incl. `notes`), got "Phone number already exists." on a duplicate add, bulk-moved 5 customers → replied (list emptied → empty state), and exported CSV; no console errors. **Deployed to the VPS 2026-07-20** (backend files synced + `alembic upgrade head` to `0016` + `backend`/`worker`/`beat` recreated + SPA rebuilt). **Pushed to GitHub and the VPS re-synced via `git fetch && git reset --hard origin/main` on 2026-07-20** — login (Telethon `sessions/1,4,5.session`, untracked → untouched by the reset) and data (Postgres volume, unaffected) verified intact before/after; the engine container was never restarted so live account connections never dropped. Local = GitHub = VPS at `00e7f7a`.
 - **2026-07-20** — **§15.4 done — Sticky Top Navigation & User/Staff Profile Management.** Non-breaking: authentication logic, roles and permissions are unchanged, and **no migration was needed** (every field already existed on `users`). **Backend:** `MeUpdate` and `UserUpdate` gain `email`; new `PasswordChange` schema; `users.email_taken(email, exclude_id)` helper and `update_user(email=…)`. `PATCH /api/auth/me` now also updates the email — rejecting a blank name (`422 "Name cannot be empty."`) and a taken address (`409 "This email address is already in use."`, excluding yourself so re-saving your own email is fine). New **`POST /api/auth/change-password`** verifies the current password with bcrypt (`400 "Current password is incorrect."`), enforces ≥8 chars, is audit-logged, and deliberately **does not** invalidate tokens so the user stays logged in. `PATCH /api/users/{id}` gains the same email-uniqueness + name-required guards. **Frontend:** the top bar is now `position: sticky; top: 0; z-index: 50` with a shadow once scrolled; the user chip became a button opening a dropdown (**My Profile / Change Password / Log out**, click-outside to close) — `UserMenu.tsx`, `ProfileModal.tsx` (editable name + email; read-only role / status / created; updates the cached user so the chip refreshes with no page reload), `ChangePasswordModal.tsx` (current / new / confirm with client-side match + length checks). Staff gains an **Actions** column with a ✏️ per row opening `EditStaffModal.tsx` (name, email, role, active toggle, optional password — blank keeps the current one), plus a sticky header and hover. New `.form-success` style for the "…updated successfully." notifications. **Bug found and fixed during E2E:** the scroll-shadow listener was bound only to `.content`, but the layout grows past the viewport so the **window** is the real scroll container — the handler now watches both (and it's `position: sticky` that actually keeps the bar pinned). **Verified:** 212 pytest pass (9 new: profile name/email update incl. same-email, blank name 422, duplicate email 409, full change-password flow — wrong current 400, success, token still valid, old password rejected + new accepted — min-length 422, staff edit name/email/role, staff duplicate email 409, staff optional-password keep-vs-change, staff blank name 422); `npm run build` clean; **browser E2E** — dropdown opened, profile renamed (success message + chip updated live), password mismatch and wrong-current-password both rejected then changed successfully while staying logged in (old password 401 / new 200 confirmed via API), staff member edited (name + email + role → row updated with no reload) and a duplicate email rejected with the exact spec message, sticky bar verified pinned at `top: 0` with the shadow class applied while the window scrolled; no console errors.
 - **2026-07-20** — **§15.5 done — Inbox UX & Performance Upgrade (Meta Business Suite style).** Telegram messaging logic, conversation storage and the contact-stage workflow are untouched; **no migration needed**. **Backend:** `inbox.get_thread()` gained `limit` / `before_id` / `q` — `limit` returns the **newest** N (so a chat opens at the latest message) always serialised oldest→newest, `before_id` pages further back, and `q` searches **within that conversation only**; new `has_older_messages()` drives the "Load older" affordance, and `count_conversations()` + a shared `_conversations_filter()` back the batched list. New **`GET /api/inbox/conversations/{id}/messages`** (`limit`/`before_id`/`q` → `{messages, has_more}`); the thread endpoint now defaults to the latest **12** and returns `has_more`; `GET /api/inbox/conversations` accepts `limit`/`offset` and sets **`X-Total-Count`** (no limit still returns everything, so existing callers are unaffected). `save_peer_as_contact()` accepts full details (name/phone/username/source/stage/consent) and **updates a matched contact instead of duplicating**, raising `DuplicateContact` (409) when an identifier belongs to someone else; the thread's contact payload gained `name`/`telegram_user_id`/`notes`. **Frontend:** the Inbox was rebuilt as a three-pane Meta-style workspace — sticky conversation header + sticky composer with **only the message history scrolling**, latest-12 loading with a "Load older messages" button that **preserves scroll position**, a 20-at-a-time conversation list with "Load more", richer conversation rows (avatar, name, @username, last message, timestamp, stage badge, unread count, connected account, active highlight), a redesigned contact panel (large avatar, Telegram ID, phone, stage, source, consent, account + **Edit contact / Copy username / Copy phone**), a full **Save as contact** modal, and **search-in-conversation** that highlights hits and scrolls to them (plus "Jump to latest"). Responsive per §10/§11: desktop three columns, tablet narrower panes, and on mobile the list opens first → a conversation fills the screen with a **back button**, contact details slide over as a **drawer** with a scrim, no horizontal scrolling; the composer is an auto-growing textarea (capped at 140px) that lifts above the mobile keyboard via `visualViewport`. **Bug found and fixed during E2E:** the conversation list and message history were **not scrolling internally at all** — flex/grid children default to `min-height: auto`, so the thread body grew to its content and pushed the page, defeating the sticky composer; adding `min-height: 0` is what actually gives both panes their own scrollbars. **Verified:** 220 pytest pass (8 new: opens at the newest 12 with `has_more`, paging back with `before_id` until exhausted, short thread reports no older, in-conversation search is partial/case-insensitive and does not leak across chats, conversation batching with `X-Total-Count` and non-overlapping pages, save-contact with full details, save-contact updating an existing match instead of duplicating); `npm run build` clean; **browser E2E** on a 25-conversation seed with a 30-message chat — 20 conversations then "Load more" → 25, chat opened at message 29 with exactly 12 loaded, "Load older" prepended 12 more with **scrollTop 0→727 and the anchor message still in view**, in-chat search found and highlighted "pricing" and scrolled to it, contact edited from the panel and the change appeared in the Contacts module, and at 375×812 the list→chat→back flow plus the slide-over drawer worked with **no horizontal scroll**; composer grew 39→140px and stayed visible. No console errors.
+- **2026-07-20** — **§15.6 done — Telegram Account Management & Identity Display Upgrade.** Login, sessions, QR/phone/session-string sign-in, health, spam and logout are all untouched. **Note:** the drafted spec **ends mid-modal** (no sections 3+, no Acceptance Criteria); the implemented scope is the Objective plus sections 1–2 as written, confirmed with the user first. **Backend:** migration **`0017`** adds `accounts.tg_user_id` / `tg_username` / `tg_first_name` — the account's *real* Telegram identity, kept separate from our operator `label`. `accounts.record_identity()` parses the engine's user payload (strips a leading `@`, `+`-prefixes the phone, ignores missing keys) and `mark_logged_in()` now takes that payload, so **all four login paths** (QR, QR-password, phone sign-in, session import) capture it; `GET /accounts/{id}/status` refreshes it too, so an already-logged-in account fills in without re-login. The operator's own label is never overwritten and a manually entered phone is never clobbered. New **`PATCH /api/accounts/{id}`** is the single unified edit: renames (rejecting a blank name with `422 "Account name cannot be empty."`), and manages the proxy — `assign_proxy:false` releases it to the pool, `true` + `proxy_id` binds a specific one (`409` if another account holds it, `404` if unknown), `true` alone auto-assigns a free proxy — then best-effort re-binds the live engine client when the proxy actually changed, and is audit-logged. `AccountOut` gained the three identity fields. **Frontend:** a single **✏️ Edit** per row opens `AccountEditModal.tsx` (Account name · read-only Telegram identity · Assign-proxy checkbox + proxy picker with the free proxies plus the one it already holds), matching the drafted mock-up; the Accounts table's old "Phone" column became a **"Telegram identity"** column showing first name / @username / phone with explicit "not logged in" and "unknown — run Health" states, and the actions moved into a proper Actions column. **Cross-test pollution fixed:** the new suite imports proxies and assigns them, which broke `test_proxy_import_and_auto_assign`'s global "exactly 1 assigned" assertion — rather than loosen that existing check, the §15.6 tests now namespace their labels (`p156-…`) and an autouse fixture hands every proxy they took back to the pool. **Verified:** 231 pytest pass (11 new: identity captured on login incl. `@`-stripping and `+`-prefixing, operator phone preserved, status-check refresh, no identity when the engine reports none, rename, blank-name 422, proxy auto-assign then release-to-pool, specific-proxy selection, 409 on a proxy owned by another account, label+proxy together, manager-only RBAC); migration `0017` up/down on SQLite; `npm run build` clean; **browser E2E** — the list showed the real identity (`Sales One / @sales_one_tg / +8801700000001`) with exactly **one Edit button per row**, the modal rendered all three sections with the identity read-only, renaming + switching proxy 10.9.0.1→10.9.0.3 updated both the account **and** the pool (old one freed, new one bound), and unchecking "Assign proxy" released it with all three proxies back to **free**. No console errors.
 
 ---
 
@@ -576,6 +577,16 @@ CRM in Docker under `/opt/telegram-crm`).
   - [x] 15.5.g Richer conversation rows (avatar, name, username, last message, timestamp, stage badge, unread count, connected account, active highlight) and contact panel (avatar, Telegram ID, phone, stage, source, consent, account + Copy username / Copy phone)
   - [x] 15.5.h **Fully responsive** — desktop 3-column, tablet narrower panes, mobile list→full-screen chat with a back button and a slide-over contact drawer, no horizontal scrolling
   - [x] 15.5.i **Responsive composer** — auto-grows with the message (capped), always visible, and lifts above the mobile keyboard via `visualViewport`
+- [x] **15.6 Telegram Account Management & Identity Display Upgrade** — done 2026-07-20 (see §14); login/session/QR/phone/health/spam/logout untouched
+  - [x] 15.6.a **One unified Edit button** per account — a single modal covering account name, Telegram identity and proxy; no separate name/proxy/enable/disable buttons
+  - [x] 15.6.b **Edit Account modal** — Account Name, read-only **Telegram Identity** (first name / @username / phone / ID), Proxy **Assign yes-no** + proxy selection, Cancel / Save Changes
+  - [x] 15.6.c **Real Telegram identity captured** — migration `0017` adds `tg_user_id` / `tg_username` / `tg_first_name`, populated from the engine on every login path and refreshed on a status check; our own `label` is never overwritten and an operator-entered phone is never clobbered
+  - [x] 15.6.d **Identity shown in the Accounts list** — a "Telegram identity" column (name / @username / phone) with clear "not logged in" and "unknown — run Health" states
+  - [x] 15.6.e **Proxy management from the same modal** — enable (auto-assign a free proxy), pick a specific proxy, or disable (released back to the pool); a proxy already held by another account is rejected, and a live client is re-bound when its proxy changes
+
+> **Note on §15.6:** the drafted spec ends mid-modal (no sections 3+ and no Acceptance
+> Criteria). Implemented scope = the Objective plus sections 1–2 as written, confirmed with
+> the user before building.
 
 ### 15.1 Inbox & messaging overhaul
 
@@ -1723,3 +1734,70 @@ Requirements:
 ✅ Modern Meta Business Suite–style interface.
 
 ✅ No regressions introduced.
+
+
+### 15.6 — Telegram Account Management & Identity Display Upgrade
+
+## Objective
+
+Improve the existing Accounts section by adding a single unified Edit option for each Telegram account and displaying the account's actual Telegram identity more clearly.
+
+All existing Telegram login, session, proxy, health, spam, logout, and account functionality must remain unchanged.
+
+---
+
+## Critical Requirements
+
+- Do NOT change the existing Telegram login/session system.
+- Do NOT change QR login, phone login, or session login.
+- Do NOT change account health or spam logic.
+- Do NOT change logout or remove functionality.
+- Do NOT affect Inbox, Campaigns, Sender, or other CRM modules.
+- Keep all existing functionality working exactly as before.
+
+---
+
+# 1. One Unified Edit Button
+
+Add one single **Edit** button for each account.
+
+All account editing functionality must be inside this one Edit option.
+
+The Edit modal must include:
+
+- Account Name / Label
+- Telegram Identity Information
+- Proxy Enable / Disable
+- Proxy Selection
+
+There should NOT be separate edit buttons for:
+
+- Name
+- Proxy
+- Enable proxy
+- Disable proxy
+
+Everything must be managed from the same Edit modal.
+
+---
+
+# 2. Edit Account Modal
+
+Example:
+
+```text
+Edit Account
+
+Account Name
+[ Sales1                  ]
+
+Telegram Identity
+@username
++880XXXXXXXXXX
+
+Proxy
+
+yes or no :  Assign proxy
+
+
+[Cancel] [Save Changes]
